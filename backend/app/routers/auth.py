@@ -1,78 +1,87 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from pydantic import BaseModel, EmailStr
-from app.core.config import settings
-from app.core.database import get_db
+from datetime import timedelta
 
-router = APIRouter(prefix="/api/auth", tags=["authentication"])
+from app.database import get_db, User
+from app.schemas import UserCreate, UserLogin, Token, User as UserSchema
+from app.auth import authenticate_user, create_access_token, get_password_hash, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+router = APIRouter()
 
-class UserCreate(BaseModel):
-    name: str
-    email: EmailStr
-    password: str
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-class UserResponse(BaseModel):
-    id: str
-    email: str
-    name: str
-    role: str = "user"
-
-class LoginResponse(BaseModel):
-    success: bool
-    token: str
-    user: UserResponse
-
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-@router.post("/login", response_model=LoginResponse)
-async def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
-    # TODO: Implement user authentication with database
-    # For now, return mock response
-    token = create_access_token(data={"sub": user_credentials.email})
-    return LoginResponse(
-        success=True,
-        token=token,
-        user=UserResponse(
-            id="1",
-            email=user_credentials.email,
-            name="John Doe",
-            role="admin"
-        )
-    )
-
-@router.post("/register")
+@router.post("/register", response_model=UserSchema)
 async def register(user: UserCreate, db: Session = Depends(get_db)):
-    # TODO: Implement user registration with database
+    # Check if user exists
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if db_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+    
+    # Create new user
     hashed_password = get_password_hash(user.password)
-    return {"success": True, "message": "User registered successfully"}
-
-@router.get("/me", response_model=UserResponse)
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    # TODO: Implement token verification and user lookup
-    return UserResponse(
-        id="1",
-        email="user@example.com",
-        name="John Doe",
-        role="admin"
+    db_user = User(
+        email=user.email,
+        name=user.name,
+        hashed_password=hashed_password,
+        role="user"
     )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    
+    return db_user
+
+@router.post("/login", response_model=Token)
+async def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
+    user = authenticate_user(db, user_credentials.email, user_credentials.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+        user=UserSchema.from_orm(user)
+    )
+
+@router.get("/me", response_model=UserSchema)
+async def read_users_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+# Initialize admin user
+async def create_admin_user():
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        # Check if admin exists
+        admin = db.query(User).filter(User.email == "admin@example.com").first()
+        if not admin:
+            admin = User(
+                email="admin@example.com",
+                name="Administrator",
+                hashed_password=get_password_hash("admin123"),
+                role="admin"
+            )
+            db.add(admin)
+            
+        # Check if regular user exists
+        user = db.query(User).filter(User.email == "user@example.com").first()
+        if not user:
+            user = User(
+                email="user@example.com",
+                name="Regular User",
+                hashed_password=get_password_hash("user123"),
+                role="user"
+            )
+            db.add(user)
+            
+        db.commit()
+    finally:
+        db.close()

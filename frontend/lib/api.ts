@@ -198,17 +198,17 @@ class ApiClient {
     })
   }
 
-  async updateDashboard(
-    id: string,
-    dashboard: {
-      name: string
-      description?: string
+  updateDashboard(
+    id: number, 
+    data: {
+      name?: string;
+      description?: string;
       charts: any[]
-    },
+    }
   ) {
     return this.request<{ success: boolean; message: string }>(`/api/dashboards/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(dashboard),
+      method: 'PUT',
+      body: JSON.stringify(data)
     })
   }
 

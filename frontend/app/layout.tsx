@@ -4,6 +4,8 @@ import { Montserrat } from "next/font/google"
 import { Open_Sans } from "next/font/google"
 import { AuthProvider } from "@/contexts/auth-context"
 import "./globals.css"
+import { Inter } from 'next/font/google'
+import { Toaster } from '@/components/ui/sonner'
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -19,6 +21,8 @@ const openSans = Open_Sans({
   weight: ["400", "500", "600"],
 })
 
+const inter = Inter({ subsets: ['latin'] })
+
 export const metadata: Metadata = {
   title: "Database Dashboard",
   description: "Multi-database management and visualization platform",
@@ -32,8 +36,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${montserrat.variable} ${openSans.variable} antialiased`}>
-      <body className="font-sans">
-        <AuthProvider>{children}</AuthProvider>
+      <body className={inter.className}>
+        <AuthProvider>
+          {children}
+          <Toaster />
+        </AuthProvider>
       </body>
     </html>
   )
