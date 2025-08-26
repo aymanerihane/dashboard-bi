@@ -8,7 +8,7 @@ from app.auth import authenticate_user, create_access_token, get_password_hash, 
 
 router = APIRouter()
 
-@router.post("/register", response_model=UserSchema)
+@router.post("/register")
 async def register(user: UserCreate, db: Session = Depends(get_db)):
     # Check if user exists
     db_user = db.query(User).filter(User.email == user.email).first()
@@ -30,9 +30,18 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_user)
     
-    return db_user
+    return {
+        "success": True,
+        "message": "User registered successfully",
+        "user": {
+            "id": str(db_user.id),
+            "email": db_user.email,
+            "name": db_user.name,
+            "role": db_user.role
+        }
+    }
 
-@router.post("/login", response_model=Token)
+@router.post("/login")
 async def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
     user = authenticate_user(db, user_credentials.email, user_credentials.password)
     if not user:
@@ -45,15 +54,25 @@ async def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
     access_token = create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
     )
-    return Token(
-        access_token=access_token,
-        token_type="bearer",
-        user=UserSchema.from_orm(user)
-    )
+    return {
+        "success": True,
+        "token": access_token,
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "name": user.name,
+            "role": user.role
+        }
+    }
 
-@router.get("/me", response_model=UserSchema)
+@router.get("/me")
 async def read_users_me(current_user: User = Depends(get_current_user)):
-    return current_user
+    return {
+        "id": str(current_user.id),
+        "email": current_user.email,
+        "name": current_user.name,
+        "role": current_user.role
+    }
 
 # Initialize admin user
 async def create_admin_user():

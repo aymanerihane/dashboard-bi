@@ -15,6 +15,11 @@ load_dotenv()
 async def lifespan(app: FastAPI):
     # Create tables on startup
     Base.metadata.create_all(bind=engine)
+    
+    # Create default users
+    from app.routers.auth import create_admin_user
+    await create_admin_user()
+    
     yield
     # Cleanup on shutdown
     pass
@@ -29,7 +34,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

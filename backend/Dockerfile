@@ -17,23 +17,9 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for better Docker layer caching
 COPY requirements.txt .
 
-# Install Python dependencies with flexible versioning
+# Install Python dependencies from requirements.txt
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir \
-    fastapi==0.104.1 \
-    uvicorn[standard]==0.24.0 \
-    python-jose[cryptography]==3.3.0 \
-    passlib[bcrypt]==1.7.4 \
-    python-multipart==0.0.6 \
-    sqlalchemy==2.0.23 \
-    alembic==1.13.1 \
-    psycopg2-binary==2.9.9 \
-    PyMySQL==1.1.0 \
-    cryptography>=41.0.0 \
-    aiosqlite==0.19.0 \
-    pandas==2.1.4 \
-    python-dotenv==1.0.0 \
-    pydantic[email]==2.5.2
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .

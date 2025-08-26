@@ -1,13 +1,39 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from pydantic import BaseModel
 
 from app.database import get_db, DatabaseConnection as DBConnection, User
 from app.schemas import DatabaseConnectionCreate, DatabaseConnectionUpdate, DatabaseConnection, ConnectionTestResult, TableInfo
 from app.auth import get_current_user
 from app.db_manager import db_manager
 
+class ConnectionTestRequest(BaseModel):
+    db_type: str
+    host: str
+    port: int
+    database_name: str
+    username: str
+    password: str = None
+
 router = APIRouter()
+
+@router.post("/test", response_model=ConnectionTestResult)
+async def test_connection_standalone(
+    connection_request: ConnectionTestRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Test a database connection without saving it"""
+    connection_data = {
+        "db_type": connection_request.db_type,
+        "host": connection_request.host,
+        "port": connection_request.port,
+        "database_name": connection_request.database_name,
+        "username": connection_request.username,
+        "password": connection_request.password
+    }
+    
+    return await db_manager.test_connection(connection_data)
 
 @router.get("/", response_model=List[DatabaseConnection])
 async def list_connections(

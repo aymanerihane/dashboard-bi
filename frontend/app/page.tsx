@@ -1,23 +1,46 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ConnectionManager } from "@/components/connection-manager"
 import { SchemaExplorer } from "@/components/schema-explorer"
 import { QueryInterface } from "@/components/query-interface"
 import { DashboardVisualization } from "@/components/dashboard-visualization"
+import { DatabaseConnectionTest } from "@/components/database-connection-test"
 import { AuthPage } from "@/components/auth/auth-page"
 import { UserMenu } from "@/components/user-menu"
 import { Database, Code, BarChart3, Loader2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
-import { mockDatabases, type DatabaseConfig } from "@/lib/database"
+import { DatabaseService, type DatabaseConfig } from "@/lib/database"
 
 export default function DatabaseDashboard() {
   const { isAuthenticated, isLoading } = useAuth()
-  const [connections, setConnections] = useState<DatabaseConfig[]>(mockDatabases)
+  const [connections, setConnections] = useState<DatabaseConfig[]>([])
   const [selectedDatabase, setSelectedDatabase] = useState<DatabaseConfig | null>(null)
   const [activeTab, setActiveTab] = useState("explorer")
   const [queryToLoad, setQueryToLoad] = useState<string>("")
+  const [loadingConnections, setLoadingConnections] = useState(false)
+
+  const databaseService = DatabaseService.getInstance()
+
+  // Load connections when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadConnections()
+    }
+  }, [isAuthenticated])
+
+  const loadConnections = async () => {
+    try {
+      setLoadingConnections(true)
+      const databases = await databaseService.getDatabases()
+      setConnections(databases)
+    } catch (error) {
+      console.error("Failed to load connections:", error)
+    } finally {
+      setLoadingConnections(false)
+    }
+  }
 
   const handleConnect = (connection: DatabaseConfig) => {
     setSelectedDatabase(connection)
@@ -79,7 +102,20 @@ export default function DatabaseDashboard() {
       {/* Main Content */}
       <main className="container mx-auto px-6 py-8">
         {!selectedDatabase ? (
-          <ConnectionManager connections={connections} onConnectionsChange={setConnections} onConnect={handleConnect} />
+          <Tabs defaultValue="manager" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 max-w-md">
+              <TabsTrigger value="manager">Connection Manager</TabsTrigger>
+              <TabsTrigger value="test">Connection Test</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="manager" className="mt-6">
+              <ConnectionManager connections={connections} onConnectionsChange={setConnections} onConnect={handleConnect} />
+            </TabsContent>
+            
+            <TabsContent value="test" className="mt-6">
+              <DatabaseConnectionTest />
+            </TabsContent>
+          </Tabs>
         ) : (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList className="grid w-full grid-cols-3 max-w-lg">

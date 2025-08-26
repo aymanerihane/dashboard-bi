@@ -47,13 +47,24 @@ export class DatabaseService {
 
   async getDatabases(): Promise<DatabaseConfig[]> {
     try {
-      const response = await apiClient.getDatabases()
-      return response.databases.map((db) => ({
-        ...db,
-        createdAt: new Date(db.createdAt),
+      console.log("DatabaseService: Calling API to get databases...")
+      const databases = await apiClient.getDatabases()
+      console.log("DatabaseService: Raw API response:", databases)
+      const mappedDatabases = databases.map((db) => ({
+        id: db.id.toString(),
+        name: db.name,
+        type: db.db_type as "postgresql" | "mysql" | "sqlite",
+        host: db.host,
+        port: db.port,
+        database: db.database_name,
+        username: db.username,
+        status: db.status,
+        createdAt: new Date(db.created_at),
       }))
+      console.log("DatabaseService: Mapped databases:", mappedDatabases)
+      return mappedDatabases
     } catch (error) {
-      console.error("Failed to fetch databases:", error)
+      console.error("DatabaseService: Failed to fetch databases:", error)
       return []
     }
   }

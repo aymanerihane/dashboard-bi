@@ -85,56 +85,99 @@ class ApiClient {
 
   // Database endpoints
   async getDatabases() {
-    return this.request<{
-      databases: Array<{
-        id: string
-        name: string
-        type: string
-        host: string
-        port: number
-        database: string
-        username: string
-        status: string
-        createdAt: string
-      }>
-    }>("/api/databases")
+    console.log("API Client: Making request to /api/databases")
+    const result = this.request<Array<{
+      id: number
+      name: string
+      db_type: string
+      host: string
+      port: number
+      database_name: string
+      username: string
+      status: string
+      user_id: number
+      created_at: string
+      updated_at: string
+    }>>("/api/databases")
+    console.log("API Client: getDatabases result:", result)
+    return result
   }
 
   async createDatabase(config: {
     name: string
     type: string
-    host: string
-    port: number
+    host?: string
+    port?: number
     database: string
-    username: string
-    password: string
+    username?: string
+    password?: string
   }) {
-    return this.request<{ success: boolean; message: string }>("/api/databases", {
+    return this.request<{
+      id: number
+      name: string
+      db_type: string
+      host: string
+      port: number
+      database_name: string
+      username: string
+      status: string
+      user_id: number
+      created_at: string
+      updated_at: string
+    }>("/api/databases", {
       method: "POST",
-      body: JSON.stringify(config),
+      body: JSON.stringify({
+        name: config.name,
+        db_type: config.type,
+        host: config.host,
+        port: config.port,
+        database_name: config.database,
+        username: config.username,
+        password: config.password,
+      }),
     })
   }
 
   async updateDatabase(
     id: string,
     config: {
-      name: string
-      type: string
-      host: string
-      port: number
-      database: string
-      username: string
-      password: string
+      name?: string
+      type?: string
+      host?: string
+      port?: number
+      database?: string
+      username?: string
+      password?: string
     },
   ) {
-    return this.request<{ success: boolean; message: string }>(`/api/databases/${id}`, {
+    return this.request<{
+      id: number
+      name: string
+      db_type: string
+      host: string
+      port: number
+      database_name: string
+      username: string
+      status: string
+      user_id: number
+      created_at: string
+      updated_at: string
+    }>(`/api/databases/${id}`, {
       method: "PUT",
-      body: JSON.stringify(config),
+      body: JSON.stringify({
+        name: config.name,
+        db_type: config.type,
+        host: config.host,
+        port: config.port,
+        database_name: config.database,
+        username: config.username,
+        password: config.password,
+      }),
     })
   }
 
   async deleteDatabase(id: string) {
-    return this.request<{ success: boolean; message: string }>(`/api/databases/${id}`, {
+    return this.request<{ message: string }>(`/api/databases/${id}`, {
       method: "DELETE",
     })
   }
@@ -144,8 +187,35 @@ class ApiClient {
       success: boolean
       message: string
       latency?: number
+      error?: string
     }>(`/api/databases/${id}/test`, {
       method: "POST",
+    })
+  }
+
+  async testConnectionStandalone(config: {
+    type: string
+    host: string
+    port: number
+    database: string
+    username: string
+    password?: string
+  }) {
+    return this.request<{
+      success: boolean
+      message: string
+      latency?: number
+      error?: string
+    }>("/api/databases/test", {
+      method: "POST",
+      body: JSON.stringify({
+        db_type: config.type,
+        host: config.host,
+        port: config.port,
+        database_name: config.database,
+        username: config.username,
+        password: config.password,
+      }),
     })
   }
 

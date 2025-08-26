@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2, CheckCircle, XCircle } from "lucide-react"
 import type { DatabaseConfig } from "@/lib/database"
+import { apiClient } from "@/lib/api"
 
 interface ConnectionFormProps {
   onSave: (config: DatabaseConfig) => void
@@ -43,44 +44,53 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
     setTesting(true)
     setTestResult(null)
 
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-
-    // More realistic connection validation
-    let success = false
-    let message = ""
-
-    if (config.type === "sqlite") {
-      // SQLite validation
-      success = !!(config.database && config.filename)
-      message = success
-        ? "SQLite connection validated successfully!"
-        : "Please provide both database name and file path for SQLite."
-    } else {
-      // PostgreSQL/MySQL validation
-      const hasRequiredFields = !!(config.host && config.database && config.username && config.password)
-      const isValidPort = config.port && config.port > 0 && config.port < 65536
-
-      if (!hasRequiredFields) {
-        message = "Please fill in all required fields (host, database, username, password)."
-      } else if (!isValidPort) {
-        message = "Please provide a valid port number (1-65535)."
+    try {
+      if (config.type === "sqlite") {
+        // SQLite validation - local only
+        const success = !!(config.database && config.filename)
+        const message = success
+          ? "SQLite connection validated successfully!"
+          : "Please provide both database name and file path for SQLite."
+        setTestResult({ success, message })
       } else {
-        // Simulate more realistic success rate based on common configurations
-        const isLocalhost = config.host === "localhost" || config.host === "127.0.0.1"
-        const hasStandardPort =
-          (config.type === "postgresql" && config.port === 5432) || (config.type === "mysql" && config.port === 3306)
+        // PostgreSQL/MySQL validation - use API
+        const hasRequiredFields = !!(config.host && config.database && config.username && config.password)
+        const isValidPort = config.port && config.port > 0 && config.port < 65536
 
-        // Higher success rate for standard configurations
-        const successRate = isLocalhost && hasStandardPort ? 0.85 : 0.6
-        success = Math.random() < successRate
-
-        message = success
-          ? `${config.type.toUpperCase()} connection established successfully!`
-          : `Failed to connect to ${config.type.toUpperCase()} database. Please verify your credentials and ensure the database server is running.`
+        if (!hasRequiredFields) {
+          setTestResult({
+            success: false,
+            message: "Please fill in all required fields (host, database, username, password)."
+          })
+        } else if (!isValidPort) {
+          setTestResult({
+            success: false,
+            message: "Please provide a valid port number (1-65535)."
+          })
+        } else {
+          // Test connection via API
+          const result = await apiClient.testConnectionStandalone({
+            type: config.type,
+            host: config.host!,
+            port: config.port!,
+            database: config.database!,
+            username: config.username!,
+            password: config.password!,
+          })
+          
+          setTestResult({
+            success: result.success,
+            message: result.message
+          })
+        }
       }
+    } catch (error) {
+      setTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : "Connection test failed"
+      })
     }
 
-    setTestResult({ success, message })
     setTesting(false)
   }
 

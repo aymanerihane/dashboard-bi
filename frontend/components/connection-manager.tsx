@@ -43,9 +43,12 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
   const loadConnections = async () => {
     try {
       setIsLoading(true)
+      console.log("Loading connections...")
       const databases = await databaseService.getDatabases()
+      console.log("Received databases:", databases)
       onConnectionsChange(databases)
     } catch (error) {
+      console.error("Failed to load connections:", error)
       toast({
         title: "Error",
         description: "Failed to load database connections",

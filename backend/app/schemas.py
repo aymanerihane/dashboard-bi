@@ -7,6 +7,7 @@ class DatabaseType(str, Enum):
     postgresql = "postgresql"
     mysql = "mysql" 
     sqlite = "sqlite"
+    mongodb = "mongodb"
 
 class ChartType(str, Enum):
     bar = "bar"

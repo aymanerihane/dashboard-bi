@@ -17,17 +17,7 @@ COPY . .
 # Set environment variables
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NODE_ENV=production
+ENV NODE_ENV=development
 
-# Build the application with error handling
-RUN pnpm build
-
-# Expose port
-EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000 || exit 1
-
-# Start the application
-CMD ["pnpm", "start"]
+# Start the development server
+CMD ["pnpm", "dev"]

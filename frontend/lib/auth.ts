@@ -36,14 +36,16 @@ export class AuthService {
 
       const user: User = {
         ...response.user,
+        role: response.user.role as "admin" | "user",
         createdAt: new Date(),
       }
 
       this.currentUser = user
       apiClient.setToken(response.token)
 
-      // Store user in localStorage for persistence
+      // Store user and token in localStorage for persistence
       if (typeof window !== "undefined") {
+        localStorage.setItem("auth-token", response.token)
         localStorage.setItem("auth-user", JSON.stringify(user))
       }
 
@@ -69,6 +71,7 @@ export class AuthService {
     this.currentUser = null
     apiClient.clearToken()
     if (typeof window !== "undefined") {
+      localStorage.removeItem("auth-token")
       localStorage.removeItem("auth-user")
     }
   }
@@ -101,6 +104,7 @@ export class AuthService {
       const userData = await apiClient.getCurrentUser()
       const user: User = {
         ...userData,
+        role: userData.role as "admin" | "user",
         createdAt: new Date(),
       }
 

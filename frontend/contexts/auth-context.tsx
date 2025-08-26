@@ -22,16 +22,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Check for existing authentication on mount
-    const user = authService.getCurrentUser()
-    setAuthState({
-      user,
-      isLoading: false,
-      isAuthenticated: !!user,
-    })
+    const checkAuth = async () => {
+      try {
+        const user = authService.getCurrentUser()
+        if (user) {
+          // Verify token is still valid by making a request
+          const refreshedUser = await authService.refreshUser()
+          setAuthState({
+            user: refreshedUser,
+            isLoading: false,
+            isAuthenticated: !!refreshedUser,
+          })
+        } else {
+          setAuthState({
+            user: null,
+            isLoading: false,
+            isAuthenticated: false,
+          })
+        }
+      } catch (error) {
+        // Token is invalid, clear auth
+        await authService.logout()
+        setAuthState({
+          user: null,
+          isLoading: false,
+          isAuthenticated: false,
+        })
+      }
+    }
+
+    checkAuth()
   }, [])
 
   const login = async (email: string, password: string) => {
-    setAuthState((prev) => ({ ...prev, isLoading: true }))
+    setAuthState((prev: AuthState) => ({ ...prev, isLoading: true }))
     try {
       const { user } = await authService.login(email, password)
       setAuthState({
@@ -39,14 +63,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading: false,
         isAuthenticated: true,
       })
+      
+      // Redirect to dashboard after successful login
+      window.location.href = "/"
     } catch (error) {
-      setAuthState((prev) => ({ ...prev, isLoading: false }))
+      setAuthState((prev: AuthState) => ({ ...prev, isLoading: false }))
       throw error
     }
   }
 
   const signup = async (email: string, password: string, name: string) => {
-    setAuthState((prev) => ({ ...prev, isLoading: true }))
+    setAuthState((prev: AuthState) => ({ ...prev, isLoading: true }))
     try {
       const { user } = await authService.signup(email, password, name)
       setAuthState({
@@ -54,8 +81,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading: false,
         isAuthenticated: true,
       })
+      
+      // Redirect to dashboard after successful signup
+      window.location.href = "/"
     } catch (error) {
-      setAuthState((prev) => ({ ...prev, isLoading: false }))
+      setAuthState((prev: AuthState) => ({ ...prev, isLoading: false }))
       throw error
     }
   }
@@ -67,6 +97,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading: false,
       isAuthenticated: false,
     })
+    
+    // Redirect to login page after logout
+    window.location.href = "/"
   }
 
   return (
