@@ -1,15 +1,88 @@
 /* Custom styles for react-grid-layout */
 .react-grid-layout {
   position: relative;
+  transition: all 300ms ease;
+}
+
+/* Grid lines for drag mode */
+.react-grid-layout.drag-mode {
+  position: relative;
+}
+
+.react-grid-layout.drag-mode::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    linear-gradient(to right, rgba(59, 130, 246, 0.2) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(59, 130, 246, 0.2) 1px, transparent 1px);
+  background-size: 25% 216px; /* 25% width (4 columns) and row height + margin */
+  background-position: 0 0, 0 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  animation: fadeInGrid 300ms ease forwards;
+}
+
+.react-grid-layout.drag-mode::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    linear-gradient(to right, rgba(156, 163, 175, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(156, 163, 175, 0.1) 1px, transparent 1px);
+  background-size: 50px 50px; /* Fine grid */
+  background-position: 0 0, 0 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  animation: fadeInGrid 300ms ease forwards 100ms;
+}
+
+@keyframes fadeInGrid {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .react-grid-item {
   transition: all 200ms ease;
   transition-property: left, top;
+  z-index: 2;
 }
 
 .react-grid-item.cssTransforms {
   transition-property: transform;
+}
+
+/* Two-click drag mode styles */
+.react-grid-item.react-grid-item--selected {
+  z-index: 10;
+}
+
+.react-grid-item.react-grid-item--selected .card {
+  box-shadow: 0 0 0 2px #3b82f6, 0 10px 25px rgba(59, 130, 246, 0.15);
+  transform: translateY(-2px);
+}
+
+/* Dragging state styles */
+.react-grid-item.react-draggable-dragging {
+  z-index: 20;
+  opacity: 0.9;
+}
+
+.react-grid-item.react-draggable-dragging .card {
+  box-shadow: 0 0 0 3px #3b82f6, 0 20px 40px rgba(59, 130, 246, 0.3);
+  transform: translateY(-4px) rotate(2deg);
 }
 
 .react-grid-item > .react-resizable-handle {

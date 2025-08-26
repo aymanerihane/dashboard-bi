@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Database, Server, HardDrive, Plus, MoreVertical, Edit, Trash2, Play, Loader2 } from "lucide-react"
 import { ConnectionForm } from "./connection-form"
+import { PasswordPrompt } from "./password-prompt"
 import { DatabaseService, type DatabaseConfig } from "@/lib/database"
 import { useToast } from "@/hooks/use-toast"
 
@@ -33,6 +34,10 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
   const [deletingConnection, setDeletingConnection] = useState<DatabaseConfig | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [testingConnection, setTestingConnection] = useState<string | null>(null)
+  const [passwordPrompt, setPasswordPrompt] = useState<{
+    connection: DatabaseConfig
+    error?: string
+  } | null>(null)
   const { toast } = useToast()
   const databaseService = DatabaseService.getInstance()
 
@@ -120,26 +125,77 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
     setShowForm(true)
   }
 
-  const handleDeleteConnection = async (connection: DatabaseConfig) => {
-    try {
-      setIsLoading(true)
-      await databaseService.deleteDatabase(connection.id)
+  const handleDelete = async () => {
+    if (!deletingConnection) return
 
+    try {
+      await databaseService.deleteDatabase(deletingConnection.id)
+      await loadConnections()
       toast({
         title: "Success",
         description: "Database connection deleted successfully",
       })
-
-      await loadConnections()
-      setDeletingConnection(null)
     } catch (error) {
+      console.error("Failed to delete connection:", error)
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete connection",
+        description: "Failed to delete connection",
         variant: "destructive",
       })
     } finally {
-      setIsLoading(false)
+      setDeletingConnection(null)
+    }
+  }
+
+  const handleConnectClick = async (connection: DatabaseConfig) => {
+    // For SQLite, connect directly
+    if (connection.type === "sqlite") {
+      onConnect(connection)
+      return
+    }
+
+    // For PostgreSQL/MySQL, try to connect and show password prompt if needed
+    try {
+      const result = await databaseService.testConnection(connection.id)
+      if (result.success) {
+        onConnect(connection)
+      } else {
+        // Connection failed, show password prompt
+        setPasswordPrompt({ connection, error: result.message })
+      }
+    } catch (error) {
+      // Connection error, show password prompt
+      setPasswordPrompt({ 
+        connection, 
+        error: error instanceof Error ? error.message : "Connection failed" 
+      })
+    }
+  }
+
+  const handlePasswordSubmit = async (password: string) => {
+    if (!passwordPrompt) return
+
+    try {
+      const result = await databaseService.connectWithPassword(passwordPrompt.connection.id, password)
+      if (result.success) {
+        setPasswordPrompt(null)
+        onConnect(passwordPrompt.connection)
+        toast({
+          title: "Success",
+          description: "Connected successfully",
+        })
+      } else {
+        // Update error in password prompt
+        setPasswordPrompt({
+          ...passwordPrompt,
+          error: result.message
+        })
+      }
+    } catch (error) {
+      setPasswordPrompt({
+        ...passwordPrompt,
+        error: error instanceof Error ? error.message : "Connection failed"
+      })
     }
   }
 
@@ -273,7 +329,7 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
                 </div>
                 <Button
                   className="w-full gap-2"
-                  onClick={() => onConnect(connection)}
+                  onClick={() => handleConnectClick(connection)}
                   disabled={isLoading || testingConnection === connection.id}
                 >
                   {testingConnection === connection.id ? (
@@ -316,7 +372,7 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deletingConnection && handleDeleteConnection(deletingConnection)}
+              onClick={() => deletingConnection && handleDelete()}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
@@ -324,6 +380,14 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <PasswordPrompt
+        isOpen={passwordPrompt !== null}
+        onClose={() => setPasswordPrompt(null)}
+        onSubmit={handlePasswordSubmit}
+        connectionName={passwordPrompt?.connection.name || ""}
+        error={passwordPrompt?.error}
+      />
     </div>
   )
 }

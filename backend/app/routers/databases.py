@@ -16,6 +16,9 @@ class ConnectionTestRequest(BaseModel):
     username: str
     password: str = None
 
+class ConnectWithPasswordRequest(BaseModel):
+    password: str
+
 router = APIRouter()
 
 @router.post("/test", response_model=ConnectionTestResult)
@@ -163,6 +166,40 @@ async def test_connection(
     result = await db_manager.test_connection(connection_data)
     
     # Update connection status
+    connection.status = "connected" if result.success else "error"
+    db.commit()
+    
+    return result
+
+@router.post("/{connection_id}/connect", response_model=ConnectionTestResult)
+async def connect_with_password(
+    connection_id: int,
+    request: ConnectWithPasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Connect to a database using a temporary password"""
+    connection = db.query(DBConnection).filter(
+        DBConnection.id == connection_id,
+        DBConnection.user_id == current_user.id
+    ).first()
+    
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    
+    # Prepare connection data with temporary password
+    connection_data = {
+        "db_type": connection.db_type,
+        "host": connection.host,
+        "port": connection.port,
+        "database_name": connection.database_name,
+        "username": connection.username,
+        "password": request.password
+    }
+    
+    result = await db_manager.test_connection(connection_data)
+    
+    # Update connection status but don't save the password
     connection.status = "connected" if result.success else "error"
     db.commit()
     

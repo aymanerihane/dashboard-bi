@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -25,18 +25,44 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
     port: initialConfig?.port || 5432,
     database: initialConfig?.database || "",
     username: initialConfig?.username || "",
-    password: initialConfig?.password || "",
+    password: "", // Never store passwords
     filename: initialConfig?.filename || "",
+    connectionString: initialConfig?.connectionString || "",
+    cluster: initialConfig?.cluster || "",
   })
 
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [tempPassword, setTempPassword] = useState("") // Temporary password for testing only
+  const [connectionTested, setConnectionTested] = useState(false) // Track if connection was successfully tested
 
-  const handleTypeChange = (type: "postgresql" | "mysql" | "sqlite") => {
+  // Clear any stored passwords on component mount and reset test status
+  useEffect(() => {
+    setConfig(prev => ({ ...prev, password: "" }))
+    setConnectionTested(false)
+  }, [])
+
+  // Reset connection tested when important config changes
+  useEffect(() => {
+    setConnectionTested(false)
+    setTestResult(null)
+  }, [config.host, config.port, config.database, config.username, config.type])
+
+  const handleTypeChange = (type: "postgresql" | "mysql" | "sqlite" | "mongodb" | "mongodb-atlas" | "redis" | "cassandra") => {
+    const defaultPorts = {
+      postgresql: 5432,
+      mysql: 3306,
+      mongodb: 27017,
+      "mongodb-atlas": 27017,
+      redis: 6379,
+      cassandra: 9042,
+      sqlite: undefined
+    }
+
     setConfig((prev) => ({
       ...prev,
       type,
-      port: type === "mysql" ? 3306 : type === "postgresql" ? 5432 : undefined,
+      port: defaultPorts[type],
     }))
   }
 
@@ -54,7 +80,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
         setTestResult({ success, message })
       } else {
         // PostgreSQL/MySQL validation - use API
-        const hasRequiredFields = !!(config.host && config.database && config.username && config.password)
+        const hasRequiredFields = !!(config.host && config.database && config.username && tempPassword)
         const isValidPort = config.port && config.port > 0 && config.port < 65536
 
         if (!hasRequiredFields) {
@@ -70,18 +96,22 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
         } else {
           // Test connection via API
           const result = await apiClient.testConnectionStandalone({
-            type: config.type,
+            type: config.type as string,
             host: config.host!,
             port: config.port!,
             database: config.database!,
             username: config.username!,
-            password: config.password!,
+            password: tempPassword,
           })
           
           setTestResult({
             success: result.success,
             message: result.message
           })
+          
+          if (result.success) {
+            setConnectionTested(true)
+          }
         }
       }
     } catch (error) {
@@ -105,14 +135,26 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
       host: config.type !== "sqlite" ? config.host : undefined,
       port: config.type !== "sqlite" ? config.port : undefined,
       username: config.type !== "sqlite" ? config.username : undefined,
-      password: config.type !== "sqlite" ? config.password : undefined,
+      password: undefined, // Never save passwords
       filename: config.type === "sqlite" ? config.filename : undefined,
     }
 
     onSave(newConfig)
   }
 
-  const isValid = config.name && config.database && (config.type === "sqlite" || (config.host && config.username))
+  // Validation for save button (requires successful test)
+  const isValid = config.name && config.database && (config.type === "sqlite" || (config.host && config.username)) && connectionTested
+
+  // Validation for test button (doesn't require prior testing)
+  const canTest = (() => {
+    if (!config.name || !config.database) return false
+    
+    if (config.type === "sqlite") {
+      return !!(config.filename)
+    } else {
+      return !!(config.host && config.username && config.port && config.port > 0 && config.port < 65536)
+    }
+  })()
 
   return (
     <Card className="w-full max-w-2xl mx-auto">
@@ -142,6 +184,10 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
               <SelectContent>
                 <SelectItem value="postgresql">PostgreSQL</SelectItem>
                 <SelectItem value="mysql">MySQL</SelectItem>
+                <SelectItem value="mongodb">MongoDB</SelectItem>
+                <SelectItem value="mongodb-atlas">MongoDB Atlas</SelectItem>
+                <SelectItem value="redis">Redis</SelectItem>
+                <SelectItem value="cassandra">Cassandra</SelectItem>
                 <SelectItem value="sqlite">SQLite</SelectItem>
               </SelectContent>
             </Select>
@@ -169,6 +215,27 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
               />
             </div>
           </div>
+        ) : config.type === "mongodb-atlas" ? (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="connectionString">Connection String</Label>
+              <Input
+                id="connectionString"
+                placeholder="mongodb+srv://username:password@cluster.mongodb.net/"
+                value={config.connectionString}
+                onChange={(e) => setConfig((prev) => ({ ...prev, connectionString: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="database">Database Name</Label>
+              <Input
+                id="database"
+                placeholder="my_database"
+                value={config.database}
+                onChange={(e) => setConfig((prev) => ({ ...prev, database: e.target.value }))}
+              />
+            </div>
+          </div>
         ) : (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -186,42 +253,47 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
                 <Input
                   id="port"
                   type="number"
-                  placeholder="5432"
+                  placeholder={config.type === "postgresql" ? "5432" : config.type === "mysql" ? "3306" : config.type === "mongodb" ? "27017" : config.type === "redis" ? "6379" : "9042"}
                   value={config.port}
                   onChange={(e) => setConfig((prev) => ({ ...prev, port: Number.parseInt(e.target.value) }))}
                 />
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="database">Database Name</Label>
+              <Label htmlFor="database">{config.type === "redis" ? "Database Index" : "Database Name"}</Label>
               <Input
                 id="database"
-                placeholder="my_database"
+                placeholder={config.type === "redis" ? "0" : "my_database"}
                 value={config.database}
                 onChange={(e) => setConfig((prev) => ({ ...prev, database: e.target.value }))}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
-                <Input
-                  id="username"
-                  placeholder="username"
-                  value={config.username}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, username: e.target.value }))}
-                />
+            {config.type !== "redis" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="username">Username</Label>
+                  <Input
+                    id="username"
+                    placeholder="username"
+                    value={config.username}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, username: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="temp-password">Password</Label>
+                  <Input
+                    id="temp-password"
+                    type="password"
+                    placeholder="Enter password to test connection"
+                    value={tempPassword}
+                    onChange={(e) => setTempPassword(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Password is only used for testing and will not be stored
+                  </p>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="password"
-                  value={config.password}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, password: e.target.value }))}
-                />
-              </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -245,7 +317,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
             <Button variant="outline" onClick={onCancel}>
               Cancel
             </Button>
-            <Button variant="outline" onClick={testConnection} disabled={!isValid || testing}>
+            <Button variant="outline" onClick={testConnection} disabled={!canTest || testing}>
               {testing ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />

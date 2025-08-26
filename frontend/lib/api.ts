@@ -173,20 +173,29 @@ class ApiClient {
     })
   }
 
-  async deleteDatabase(id: string) {
+  async deleteDatabase(id: number) {
     return this.request<{ message: string }>(`/api/databases/${id}`, {
       method: "DELETE",
     })
   }
 
-  async testConnection(id: string) {
+  async testConnection(id: number) {
     return this.request<{
       success: boolean
       message: string
       latency?: number
-      error?: string
     }>(`/api/databases/${id}/test`, {
       method: "POST",
+    })
+  }
+
+  async connectWithPassword(id: number, password: string) {
+    return this.request<{
+      success: boolean
+      message: string
+    }>(`/api/databases/${id}/connect`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
     })
   }
 
@@ -217,47 +226,32 @@ class ApiClient {
   }
 
   // Database table endpoints
-  async getTables(connectionId: string) {
-    const tables = await this.request<Array<{
-      name: string
-      columns: Array<{
+  async getTables(connectionId: number) {
+    return this.request<{
+      tables: Array<{
         name: string
-        type: string
-        nullable: boolean
-        primaryKey: boolean
-        defaultValue?: string
+        columns: Array<{
+          name: string
+          type: string
+          nullable: boolean
+          primaryKey: boolean
+          defaultValue?: string
+        }>
       }>
-      row_count: number
-    }>>(`/api/databases/${connectionId}/tables`)
-    
-    // Transform row_count to rowCount for frontend compatibility
-    return tables.map(table => ({
-      ...table,
-      rowCount: table.row_count
-    }))
+    }>(`/api/databases/${connectionId}/tables`)
   }
 
-  async getTableData(connectionId: string, tableName: string, limit: number = 10, offset: number = 0) {
-    const result = await this.request<{
+  async getTableData(connectionId: number, tableName: string, limit: number = 10, offset: number = 0) {
+    return this.request<{
       success: boolean
       data: any[]
       columns: Array<{ name: string; type: string }>
-      row_count: number
-      execution_time: number
-      error?: string
+      total: number
     }>(`/api/databases/${connectionId}/tables/${tableName}/data?limit=${limit}&offset=${offset}`)
-    
-    // Transform the result to match expected format
-    return {
-      columns: result.columns?.map(col => col.name) || [],
-      rows: result.data || [],
-      rowCount: result.row_count || 0,
-      totalRows: result.row_count || 0
-    }
   }
 
   // Query endpoints
-  async executeQuery(databaseId: string, query: string, limit?: number) {
+  async executeQuery(databaseId: number, query: string, limit?: number) {
     return this.request<{
       success: boolean
       data: any[]

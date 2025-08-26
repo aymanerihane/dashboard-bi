@@ -94,17 +94,7 @@ export function PasswordConfirmationDialog({
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="save-password"
-              checked={savePassword}
-              onCheckedChange={(checked) => setSavePassword(checked === true)}
-              disabled={loading}
-            />
-            <Label htmlFor="save-password" className="text-sm">
-              Remember password and don't ask again for this database
-            </Label>
-          </div>
+          
 
           <div className="flex justify-end gap-2">
             <Button

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -112,7 +112,12 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
   const [showCreateChart, setShowCreateChart] = useState(false)
   const [showCreateDashboard, setShowCreateDashboard] = useState(false)
   const [showEditChart, setShowEditChart] = useState(false)
+  const [showEditDashboard, setShowEditDashboard] = useState(false)
   const [editingChart, setEditingChart] = useState<ChartConfig | null>(null)
+  const [editingDashboard, setEditingDashboard] = useState<Dashboard | null>(null)
+  const [showFullChart, setShowFullChart] = useState<ChartConfig | null>(null)
+  const [dragMode, setDragMode] = useState(false)
+  const [selectedChart, setSelectedChart] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [newChart, setNewChart] = useState<Partial<ChartConfig>>({
     title: "",
@@ -135,8 +140,13 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
 
   // Helper function to convert backend chart format to frontend format
   const convertBackendChartToFrontend = (backendChart: any): ChartConfig => {
+    // Use backend ID if available, otherwise create a stable ID based on chart properties
+    const chartId = backendChart.id 
+      ? backendChart.id.toString() 
+      : `chart-${backendChart.title}-${backendChart.type}-${backendChart.query}`.replace(/[^a-zA-Z0-9-]/g, '-')
+    
     return {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9), // Generate unique ID
+      id: chartId,
       title: backendChart.title,
       type: backendChart.type,
       query: backendChart.query,
@@ -174,7 +184,15 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
       setLoading(true)
       try {
         const backendDashboards = await apiClient.getDashboards()
+        console.log('Raw backend dashboards:', backendDashboards)
+        
         const frontendDashboards = backendDashboards.map(convertBackendDashboardToFrontend)
+        console.log('Converted frontend dashboards:', frontendDashboards)
+        console.log('Charts grid positions:', frontendDashboards.map(d => ({
+          dashboard: d.name,
+          charts: d.charts.map(c => ({ id: c.id, title: c.title, x: c.x, y: c.y, w: c.w, h: c.h }))
+        })))
+        
         setDashboards(frontendDashboards)
         
         // Select first dashboard if available
@@ -221,6 +239,28 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
       setSelectedYColumn("")
     }
   }, [newChart.type])
+
+  // Keyboard shortcuts for drag mode and full screen
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (showFullChart) {
+          setShowFullChart(null)
+        } else if (dragMode) {
+          setDragMode(false)
+          setSelectedChart(null)
+        }
+      }
+      if (event.key === 'd' && event.ctrlKey) {
+        event.preventDefault()
+        setDragMode(!dragMode)
+        setSelectedChart(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyPress)
+    return () => window.removeEventListener('keydown', handleKeyPress)
+  }, [dragMode, showFullChart])
 
   const loadDatabases = async () => {
     try {
@@ -660,7 +700,9 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
       }
 
       // Create chart object matching backend schema
+      const chartId = `chart-${newChart.title}-${newChart.type}-${Date.now()}`.replace(/[^a-zA-Z0-9-]/g, '-')
       const backendChart = {
+        id: chartId,
         type: newChart.type,
         title: newChart.title,
         query: generatedQuery,
@@ -670,12 +712,17 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           yAxis: needsYAxis ? selectedYColumn : undefined,
           data: chartData,
           color: newChart.color || chartColors[0],
+          // Include grid layout properties in config
+          x: (selectedDashboard.charts.length * 2) % 4,
+          y: Math.floor((selectedDashboard.charts.length * 2) / 4) * 2,
+          w: 2,
+          h: 2,
         }
       }
 
       // Also create local chart object for immediate UI update
       const localChart: ChartConfig = {
-        id: Date.now().toString(),
+        id: chartId,
         title: newChart.title,
         type: newChart.type as "bar" | "line" | "pie" | "area" | "scatter" | "histogram" | "heatmap" | "donut",
         query: generatedQuery,
@@ -698,6 +745,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
       // Update dashboard with new chart via API
       try {
         const newCharts = [...selectedDashboard.charts.map(chart => ({
+          id: chart.id,  // Include chart ID
           type: chart.type,
           title: chart.title,
           query: chart.query,
@@ -707,6 +755,12 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
             yAxis: chart.yAxis,
             data: chart.data,
             color: chart.color,
+            x: chart.x,
+            y: chart.y,
+            w: chart.w,
+            h: chart.h,
+            columns: chart.columns,
+            customColors: chart.customColors,
           }
         })), backendChart]
         
@@ -914,25 +968,97 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     setShowEditChart(true)
   }
 
+  const editDashboard = (dashboard: Dashboard) => {
+    setEditingDashboard(dashboard)
+    setShowEditDashboard(true)
+  }
+
+  const updateDashboardInfo = async () => {
+    if (!editingDashboard) return
+
+    try {
+      await apiClient.updateDashboard(parseInt(editingDashboard.id), {
+        name: editingDashboard.name,
+        description: editingDashboard.description,
+        charts: editingDashboard.charts.map(chart => ({
+          id: chart.id,
+          type: chart.type,
+          title: chart.title,
+          query: chart.query,
+          database_id: 1,
+          config: {
+            xAxis: chart.xAxis,
+            yAxis: chart.yAxis,
+            data: chart.data,
+            color: chart.color,
+            width: chart.width,
+            height: chart.height,
+            position: chart.position,
+            x: chart.x,
+            y: chart.y,
+            w: chart.w,
+            h: chart.h,
+            columns: chart.columns,
+            customColors: chart.customColors,
+          }
+        }))
+      })
+
+      // Reload dashboards
+      const backendDashboards = await apiClient.getDashboards()
+      const frontendDashboards = backendDashboards.map(convertBackendDashboardToFrontend)
+      setDashboards(frontendDashboards)
+      
+      // Update selected dashboard
+      const updatedSelectedDashboard = frontendDashboards.find(d => d.id === editingDashboard.id)
+      if (updatedSelectedDashboard) {
+        setSelectedDashboard(updatedSelectedDashboard)
+      }
+
+      setShowEditDashboard(false)
+      setEditingDashboard(null)
+
+      toast({
+        title: "Success",
+        description: "Dashboard updated successfully",
+      })
+    } catch (error) {
+      console.error('Failed to update dashboard:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update dashboard",
+        variant: "destructive",
+      })
+    }
+  }
+
   const updateChart = async () => {
     if (!editingChart || !selectedDashboard) return
 
     try {
-      // Update the chart in the dashboard
+      // Update the chart in the dashboard using editingChart values
       const updatedCharts = selectedDashboard.charts.map(chart => 
         chart.id === editingChart.id 
           ? {
               ...chart,
-              title: newChart.title || chart.title,
-              color: newChart.color || chart.color,
-              width: editingChart.width || 1,
-              height: editingChart.height || 1,
+              title: editingChart.title,
+              type: editingChart.type,
+              query: editingChart.query,
+              color: editingChart.color,
+              columns: editingChart.columns || {},
+              customColors: editingChart.customColors || {},
+              // Keep existing grid properties
+              x: editingChart.x,
+              y: editingChart.y,
+              w: editingChart.w,
+              h: editingChart.h,
             }
           : chart
       )
 
       // Convert to backend format
       const backendCharts = updatedCharts.map(chart => ({
+        id: chart.id,  // Include chart ID
         type: chart.type,
         title: chart.title,
         query: chart.query,
@@ -945,6 +1071,12 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           width: chart.width,
           height: chart.height,
           position: chart.position,
+          x: chart.x,
+          y: chart.y,
+          w: chart.w,
+          h: chart.h,
+          columns: chart.columns,
+          customColors: chart.customColors,
         }
       }))
 
@@ -987,6 +1119,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     try {
       // Convert charts to backend format
       const backendCharts = dashboard.charts.map(chart => ({
+        id: chart.id,  // Include chart ID
         type: chart.type,
         title: chart.title,
         query: chart.query,
@@ -1008,6 +1141,12 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         }
       }))
 
+      console.log('Saving dashboard with charts:', backendCharts.map(c => ({ 
+        id: c.id, 
+        title: c.title, 
+        gridPos: { x: c.config.x, y: c.config.y, w: c.config.w, h: c.config.h }
+      })))
+
       await apiClient.updateDashboard(parseInt(dashboard.id), {
         name: dashboard.name,
         description: dashboard.description,
@@ -1020,6 +1159,33 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         description: "Failed to save layout changes",
         variant: "destructive",
       })
+    }
+  }
+
+  // Generate layouts object from chart data for ResponsiveGridLayout
+  const generateLayouts = (charts: ChartConfig[]) => {
+    const layout = charts.map(chart => ({
+      i: chart.id,
+      x: chart.x || 0,
+      y: chart.y || 0,
+      w: chart.w || 2,
+      h: chart.h || 2,
+      minW: 1,
+      minH: 1,
+      maxW: 4,
+      maxH: 4
+    }))
+
+    // Debug: Log the layout being generated
+    console.log('Generated layout from charts:', layout)
+    console.log('Charts data:', charts.map(c => ({ id: c.id, title: c.title, x: c.x, y: c.y, w: c.w, h: c.h })))
+
+    return {
+      lg: layout,
+      md: layout.map(item => ({ ...item, w: Math.min(item.w, 3) })),
+      sm: layout.map(item => ({ ...item, w: Math.min(item.w, 2) })),
+      xs: layout.map(item => ({ ...item, w: 1 })),
+      xxs: layout.map(item => ({ ...item, w: 1 }))
     }
   }
 
@@ -1427,6 +1593,54 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
               </DialogContent>
             </Dialog>
           )}
+
+          {/* Edit Dashboard Dialog */}
+          {editingDashboard && (
+            <Dialog open={showEditDashboard} onOpenChange={setShowEditDashboard}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Edit className="h-5 w-5" />
+                    Edit Dashboard
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-dashboard-name">Dashboard Name</Label>
+                    <Input
+                      id="edit-dashboard-name"
+                      placeholder="Dashboard Name"
+                      value={editingDashboard.name}
+                      onChange={(e) => setEditingDashboard((prev) => ({ ...prev!, name: e.target.value }))}
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-dashboard-description">Description</Label>
+                    <Textarea
+                      id="edit-dashboard-description"
+                      placeholder="Describe your dashboard..."
+                      value={editingDashboard.description}
+                      onChange={(e) => setEditingDashboard((prev) => ({ ...prev!, description: e.target.value }))}
+                      rows={3}
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => {
+                      setShowEditDashboard(false)
+                      setEditingDashboard(null)
+                    }}>
+                      Cancel
+                    </Button>
+                    <Button onClick={updateDashboardInfo}>
+                      Update Dashboard
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </div>
 
@@ -1483,6 +1697,19 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                 </div>
                 <div className="flex gap-2">
                   <Button 
+                    variant={dragMode ? "default" : "outline"}
+                    size="sm" 
+                    className="gap-2"
+                    title="Toggle drag mode (Ctrl+D)"
+                    onClick={() => {
+                      setDragMode(!dragMode)
+                      setSelectedChart(null)
+                    }}
+                  >
+                    <Move className="h-4 w-4" />
+                    {dragMode ? "Exit Drag Mode" : "Drag Mode"}
+                  </Button>
+                  <Button 
                     variant="outline" 
                     size="sm" 
                     className="gap-2 bg-transparent"
@@ -1495,6 +1722,15 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                     variant="outline" 
                     size="sm" 
                     className="gap-2 bg-transparent"
+                    onClick={() => editDashboard(selectedDashboard)}
+                  >
+                    <Edit className="h-4 w-4" />
+                    Edit Dashboard
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="gap-2 bg-transparent"
                     onClick={() => deleteDashboard(selectedDashboard.id)}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -1502,6 +1738,28 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   </Button>
                 </div>
               </div>
+
+              {dragMode && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
+                  <Move className="h-4 w-4 text-blue-600" />
+                  <div className="text-sm text-blue-800">
+                    <strong>Drag Mode Active:</strong> Click a chart to select it, then drag to reposition. 
+                    Press <kbd className="px-1 py-0.5 text-xs bg-blue-200 rounded mx-1">Escape</kbd> or <kbd className="px-1 py-0.5 text-xs bg-blue-200 rounded mx-1">Ctrl+D</kbd> to exit.
+                    {selectedChart && <span className="ml-2 text-blue-600">• Selected chart can now be dragged</span>}
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      setDragMode(false)
+                      setSelectedChart(null)
+                    }}
+                    className="ml-auto"
+                  >
+                    Exit Drag Mode
+                  </Button>
+                </div>
+              )}
 
               {selectedDashboard.charts.length === 0 ? (
                 <Card className="text-center py-12">
@@ -1517,25 +1775,36 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                 </Card>
               ) : (
                 <ResponsiveGridLayout
-                  className="layout"
-                  layouts={{}}
+                  className={`layout ${dragMode ? 'drag-mode' : ''}`}
+                  layouts={generateLayouts(selectedDashboard.charts)}
                   breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
                   cols={{ lg: 4, md: 3, sm: 2, xs: 1, xxs: 1 }}
                   rowHeight={200}
+                  isDraggable={dragMode}
+                  isResizable={dragMode}
+                  draggableHandle={selectedChart ? `.draggable-${selectedChart}` : ".no-drag"}
                   onLayoutChange={(layout, layouts) => {
-                    // Update chart positions when layout changes
-                    if (!selectedDashboard || !selectedDashboard.charts) return
+                    // Only update if drag mode is enabled and chart is selected
+                    if (!dragMode || !selectedChart || !selectedDashboard || !selectedDashboard.charts) return
+                    
+                    console.log('Layout change detected:', layout)
+                    console.log('Current charts before update:', selectedDashboard.charts.map(c => ({ id: c.id, x: c.x, y: c.y, w: c.w, h: c.h })))
                     
                     const updatedCharts = selectedDashboard.charts.map(chart => {
                       const layoutItem = layout.find(item => item.i === chart.id)
                       if (layoutItem) {
-                        return {
+                        const updatedChart = {
                           ...chart,
                           x: layoutItem.x,
                           y: layoutItem.y,
                           w: layoutItem.w,
                           h: layoutItem.h
                         }
+                        console.log(`Updated chart ${chart.id}:`, { 
+                          old: { x: chart.x, y: chart.y, w: chart.w, h: chart.h },
+                          new: { x: layoutItem.x, y: layoutItem.y, w: layoutItem.w, h: layoutItem.h }
+                        })
+                        return updatedChart
                       }
                       return chart
                     })
@@ -1553,10 +1822,9 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                     setSelectedDashboard(updatedDashboard)
                     
                     // Save to backend (debounced to avoid too many calls)
+                    console.log('Saving updated dashboard to backend...')
                     updateDashboard(updatedDashboard)
                   }}
-                  isDraggable={true}
-                  isResizable={true}
                   margin={[16, 16]}
                   containerPadding={[0, 0]}
                 >
@@ -1574,8 +1842,34 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                         maxH: 4
                       }}
                     >
-                      <Card className="h-full">
-                        <CardHeader className="pb-3">
+                      <Card 
+                        className={`h-full transition-all duration-200 ${
+                          dragMode 
+                            ? selectedChart === chart.id 
+                              ? 'ring-2 ring-blue-500 shadow-lg cursor-move' 
+                              : 'cursor-pointer hover:ring-1 hover:ring-gray-300'
+                            : ''
+                        }`}
+                        onClick={() => {
+                          if (dragMode) {
+                            setSelectedChart(selectedChart === chart.id ? null : chart.id)
+                          }
+                        }}
+                      >
+                        <CardHeader className={`pb-3 ${selectedChart === chart.id ? `draggable-${chart.id}` : ''}`}>
+                          {dragMode && (
+                            <div className="absolute top-2 left-2 z-10">
+                              {selectedChart === chart.id ? (
+                                <Badge variant="default" className="text-xs bg-blue-500">
+                                  Selected - Drag to move
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs">
+                                  Click to select
+                                </Badge>
+                              )}
+                            </div>
+                          )}
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               {getChartIcon(chart.type)}
@@ -1585,24 +1879,49 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                               <Badge variant="outline" className="text-xs">
                                 {chart.type.toUpperCase()}
                               </Badge>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => editChart(chart)}
-                                className="h-6 w-6 p-0 text-muted-foreground hover:text-blue-500"
-                                title="Edit Chart"
-                              >
-                                <Edit className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => deleteChart(chart.id)}
-                                className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                                title="Delete Chart"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
+                              {!dragMode && (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      setShowFullChart(chart)
+                                    }}
+                                    className="h-6 w-6 p-0 text-muted-foreground hover:text-green-500"
+                                    title="Full View"
+                                  >
+                                    <Maximize className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      editChart(chart)
+                                    }}
+                                    className="h-6 w-6 p-0 text-muted-foreground hover:text-blue-500"
+                                    title="Edit Chart"
+                                  >
+                                    <Edit className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      deleteChart(chart.id)
+                                    }}
+                                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                                    title="Delete Chart"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </>
+                              )}
                             </div>
                           </div>
                         </CardHeader>
@@ -1626,6 +1945,24 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           )}
         </div>
       </div>
+
+      {/* Full Chart View Dialog */}
+      <Dialog open={showFullChart !== null} onOpenChange={() => setShowFullChart(null)}>
+        <DialogContent className="max-w-[100vw] max-h-[100vh] w-[100vw] h-[100vh] p-0 m-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-2">
+            <DialogTitle className="flex items-center gap-2">
+              {showFullChart && getChartIcon(showFullChart.type)}
+              {showFullChart?.title}
+            </DialogTitle>
+            <DialogDescription>
+              Full screen view of the chart
+            </DialogDescription>
+          </DialogHeader>
+          <div className="w-full h-[calc(100vh-120px)] p-6 pt-2">
+            {showFullChart && renderChart(showFullChart)}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -1,15 +1,17 @@
 import { apiClient } from "./api"
 
 export interface DatabaseConfig {
-  id: string
+  id: number
   name: string
-  type: "postgresql" | "mysql" | "sqlite"
+  type: "postgresql" | "mysql" | "sqlite" | "mongodb" | "mongodb-atlas" | "redis" | "cassandra"
   host?: string
   port?: number
   database: string
   username?: string
   password?: string
   filename?: string // for SQLite
+  connectionString?: string // for MongoDB Atlas
+  cluster?: string // for MongoDB Atlas
   status?: string
   createdAt?: Date
 }
@@ -49,7 +51,7 @@ export class DatabaseService {
     try {
       const databases = await apiClient.getDatabases()
       const mappedDatabases = databases.map((db) => ({
-        id: db.id.toString(),
+        id: db.id,
         name: db.name,
         type: db.db_type as "postgresql" | "mysql" | "sqlite",
         host: db.host,
@@ -74,7 +76,7 @@ export class DatabaseService {
       port: config.port || (config.type === "postgresql" ? 5432 : config.type === "mysql" ? 3306 : 0),
       database: config.database,
       username: config.username || "",
-      password: config.password || "",
+      password: "", // Never store passwords
     })
   }
 
@@ -86,16 +88,22 @@ export class DatabaseService {
       port: config.port || (config.type === "postgresql" ? 5432 : config.type === "mysql" ? 3306 : 0),
       database: config.database,
       username: config.username || "",
-      password: config.password || "",
+      password: "", // Never store passwords
     })
   }
 
-  async deleteDatabase(id: string): Promise<void> {
+  async deleteDatabase(id: number): Promise<void> {
     await apiClient.deleteDatabase(id)
   }
 
-  async testConnection(id: string): Promise<{ success: boolean; message: string; latency?: number }> {
+  async testConnection(id: number): Promise<{ success: boolean; message: string; latency?: number }> {
     return await apiClient.testConnection(id)
+  }
+
+  async connectWithPassword(id: number, password: string): Promise<{ success: boolean; message: string }> {
+    // This method will be used to establish a connection with a temporary password
+    // without storing it permanently
+    return await apiClient.connectWithPassword(id, password)
   }
 
   async testConnectionWithPassword(
@@ -120,7 +128,7 @@ export class DatabaseService {
   }
 
   async executeQuery(
-    databaseId: string,
+    databaseId: number,
     query: string,
   ): Promise<{
     success: boolean
@@ -181,7 +189,7 @@ export const mockTables: Record<string, TableInfo[]> = {
 
 export const mockDatabases: DatabaseConfig[] = [
   {
-    id: "demo-postgres",
+    id: 1,
     name: "Demo PostgreSQL",
     type: "postgresql",
     host: "localhost",
@@ -192,7 +200,7 @@ export const mockDatabases: DatabaseConfig[] = [
     createdAt: new Date(Date.now() - 86400000 * 7),
   },
   {
-    id: "demo-mysql",
+    id: 2,
     name: "Demo MySQL",
     type: "mysql",
     host: "localhost",
@@ -203,7 +211,7 @@ export const mockDatabases: DatabaseConfig[] = [
     createdAt: new Date(Date.now() - 86400000 * 3),
   },
   {
-    id: "demo-sqlite",
+    id: 3,
     name: "Demo SQLite",
     type: "sqlite",
     database: "demo.db",
