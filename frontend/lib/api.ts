@@ -85,8 +85,7 @@ class ApiClient {
 
   // Database endpoints
   async getDatabases() {
-    console.log("API Client: Making request to /api/databases")
-    const result = this.request<Array<{
+    return this.request<Array<{
       id: number
       name: string
       db_type: string
@@ -99,8 +98,6 @@ class ApiClient {
       created_at: string
       updated_at: string
     }>>("/api/databases")
-    console.log("API Client: getDatabases result:", result)
-    return result
   }
 
   async createDatabase(config: {
@@ -219,42 +216,75 @@ class ApiClient {
     })
   }
 
+  // Database table endpoints
+  async getTables(connectionId: string) {
+    const tables = await this.request<Array<{
+      name: string
+      columns: Array<{
+        name: string
+        type: string
+        nullable: boolean
+        primaryKey: boolean
+        defaultValue?: string
+      }>
+      row_count: number
+    }>>(`/api/databases/${connectionId}/tables`)
+    
+    // Transform row_count to rowCount for frontend compatibility
+    return tables.map(table => ({
+      ...table,
+      rowCount: table.row_count
+    }))
+  }
+
+  async getTableData(connectionId: string, tableName: string, limit: number = 10, offset: number = 0) {
+    return this.request<{
+      columns: string[]
+      rows: any[]
+      rowCount: number
+      totalRows: number
+    }>(`/api/databases/${connectionId}/tables/${tableName}/data?limit=${limit}&offset=${offset}`)
+  }
+
   // Query endpoints
-  async executeQuery(databaseId: string, query: string, parameters: any[] = []) {
+  async executeQuery(databaseId: string, query: string, limit?: number) {
     return this.request<{
       success: boolean
       data: any[]
       columns: Array<{ name: string; type: string }>
       rowCount: number
       executionTime: number
-    }>("/api/query", {
+      error?: string
+    }>("/api/queries/execute", {
       method: "POST",
-      body: JSON.stringify({ databaseId, query, parameters }),
+      body: JSON.stringify({ database_id: databaseId, query, limit }),
     })
   }
 
-  async getQueryHistory() {
-    return this.request<{
-      history: Array<{
-        id: string
-        query: string
-        executedAt: string
-        executionTime: number
-        rowCount: number
-      }>
-    }>("/api/query/history")
+  async getQueryHistory(limit: number = 10) {
+    return this.request<Array<{
+      id: number
+      query: string
+      executed_at: string
+      execution_time: number
+      row_count: number
+      status: string
+      error_message?: string
+      database_id: number
+    }>>(`/api/queries/history?limit=${limit}`)
   }
 
   // Dashboard endpoints
   async getDashboards() {
-    return this.request<{
-      dashboards: Array<{
-        id: string
-        name: string
-        description?: string
-        charts: any[]
-      }>
-    }>("/api/dashboards")
+    return this.request<Array<{
+      id: number
+      name: string
+      description?: string
+      charts: any[]
+      user_id: number
+      created_at: string
+      updated_at: string
+    }>>("/api/dashboards")
   }
 
   async createDashboard(dashboard: {

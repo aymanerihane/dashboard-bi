@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -21,46 +21,80 @@ import {
   Type,
   FileText,
   Code,
+  Loader2,
 } from "lucide-react"
 import type { DatabaseConfig, TableInfo } from "@/lib/database"
-import { mockTables } from "@/lib/database"
+import { apiClient } from "@/lib/api"
+import { useToast } from "@/hooks/use-toast"
 
 interface SchemaExplorerProps {
   database: DatabaseConfig
   onOpenQuery?: (query: string) => void
 }
 
-// Mock data for table preview
-const mockTableData = {
-  users: [
-    { id: 1, email: "john@example.com", name: "John Doe", created_at: "2024-01-15T10:30:00Z" },
-    { id: 2, email: "jane@example.com", name: "Jane Smith", created_at: "2024-01-16T14:22:00Z" },
-    { id: 3, email: "bob@example.com", name: "Bob Johnson", created_at: "2024-01-17T09:15:00Z" },
-  ],
-  orders: [
-    { id: 101, user_id: 1, total: 299.99, status: "completed", created_at: "2024-01-20T16:45:00Z" },
-    { id: 102, user_id: 2, total: 149.5, status: "pending", created_at: "2024-01-21T11:30:00Z" },
-    { id: 103, user_id: 1, total: 89.99, status: "completed", created_at: "2024-01-22T13:20:00Z" },
-  ],
-  products: [
-    { id: 1, name: "Laptop Pro", price: 1299.99, category_id: 1 },
-    { id: 2, name: "Wireless Mouse", price: 29.99, category_id: 2 },
-    { id: 3, name: "USB-C Cable", price: 19.99, category_id: 2 },
-  ],
-  logs: [
-    { id: 1, level: "INFO", message: "Application started", timestamp: "2024-01-25T08:00:00Z" },
-    { id: 2, level: "ERROR", message: "Database connection failed", timestamp: "2024-01-25T08:05:00Z" },
-    { id: 3, level: "WARN", message: "High memory usage detected", timestamp: "2024-01-25T08:10:00Z" },
-  ],
-}
-
 export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedTable, setSelectedTable] = useState<TableInfo | null>(null)
   const [activeTab, setActiveTab] = useState("structure")
+  const [tables, setTables] = useState<TableInfo[]>([])
+  const [tableData, setTableData] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [loadingData, setLoadingData] = useState(false)
+  const { toast } = useToast()
 
-  const tables = mockTables[database.id] || []
   const filteredTables = tables.filter((table) => table.name.toLowerCase().includes(searchTerm.toLowerCase()))
+
+  // Load tables when component mounts or database changes
+  useEffect(() => {
+    loadTables()
+  }, [database.id])
+
+  // Load table data when selected table changes
+  useEffect(() => {
+    if (selectedTable && activeTab === "data") {
+      loadTableData()
+    }
+  }, [selectedTable, activeTab])
+
+  const loadTables = async () => {
+    try {
+      setLoading(true)
+      console.log("Loading tables for database:", database.id)
+      const tablesData = await apiClient.getTables(database.id)
+      console.log("Received tables:", tablesData)
+      setTables(tablesData)
+    } catch (error) {
+      console.error("Failed to load tables:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load database tables",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadTableData = async () => {
+    if (!selectedTable) return
+    
+    try {
+      setLoadingData(true)
+      console.log("Loading data for table:", selectedTable.name)
+      const data = await apiClient.getTableData(database.id, selectedTable.name, 10, 0)
+      console.log("Received table data:", data)
+      setTableData(data.rows || [])
+    } catch (error) {
+      console.error("Failed to load table data:", error)
+      toast({
+        title: "Error",
+        description: `Failed to load data for table ${selectedTable.name}`,
+        variant: "destructive",
+      })
+    } finally {
+      setLoadingData(false)
+    }
+  }
 
   const getColumnIcon = (type: string) => {
     const lowerType = type.toLowerCase()
@@ -120,24 +154,38 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <ScrollArea className="h-[calc(100vh-20rem)]">
+                      <ScrollArea className="h-[calc(100vh-14rem)]">
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <span className="ml-2">Loading tables...</span>
+              </div>
+            ) : filteredTables.length > 0 ? (
               <div className="space-y-1 p-4">
                 {filteredTables.map((table) => (
                   <Button
                     key={table.name}
                     variant={selectedTable?.name === table.name ? "secondary" : "ghost"}
-                    className="w-full justify-start gap-2 h-auto p-3"
+                    className="w-full justify-start h-auto p-3"
                     onClick={() => setSelectedTable(table)}
                   >
-                    <TableIcon className="h-4 w-4" />
+                    <TableIcon className="h-4 w-4 mr-3 flex-shrink-0" />
                     <div className="text-left">
                       <div className="font-medium">{table.name}</div>
-                      <div className="text-xs text-muted-foreground">{table.rowCount.toLocaleString()} rows</div>
+                      <div className="text-xs text-muted-foreground">
+                        {(table.rowCount || 0).toLocaleString()} rows
+                      </div>
                     </div>
                   </Button>
                 ))}
               </div>
-            </ScrollArea>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No tables found</p>
+              </div>
+            )}
+          </ScrollArea>
           </CardContent>
         </Card>
       </div>
@@ -235,7 +283,12 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
 
                 <TabsContent value="data" className="mt-4">
                   <ScrollArea className="h-[calc(100vh-28rem)]">
-                    {mockTableData[selectedTable.name as keyof typeof mockTableData] ? (
+                    {loadingData ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                        <span className="ml-2">Loading table data...</span>
+                      </div>
+                    ) : tableData.length > 0 ? (
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -245,11 +298,11 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {mockTableData[selectedTable.name as keyof typeof mockTableData].map((row, index) => (
+                          {tableData.map((row, index) => (
                             <TableRow key={index}>
                               {selectedTable.columns.map((column) => (
                                 <TableCell key={column.name}>
-                                  {formatValue(row[column.name as keyof typeof row])}
+                                  {formatValue(row[column.name])}
                                 </TableCell>
                               ))}
                             </TableRow>
@@ -259,7 +312,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     ) : (
                       <div className="text-center py-8 text-muted-foreground">
                         <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>No preview data available for this table</p>
+                        <p>No data available for this table</p>
                       </div>
                     )}
                   </ScrollArea>
