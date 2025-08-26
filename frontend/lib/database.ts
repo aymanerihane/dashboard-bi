@@ -98,6 +98,27 @@ export class DatabaseService {
     return await apiClient.testConnection(id)
   }
 
+  async testConnectionWithPassword(
+    database: DatabaseConfig, 
+    password: string
+  ): Promise<{ success: boolean; message?: string; error?: string; latency?: number }> {
+    try {
+      return await apiClient.testConnectionStandalone({
+        type: database.type,
+        host: database.host || "localhost",
+        port: database.port || 5432,
+        database: database.database,
+        username: database.username || "",
+        password: password
+      })
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Connection test failed"
+      }
+    }
+  }
+
   async executeQuery(
     databaseId: string,
     query: string,

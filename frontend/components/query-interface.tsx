@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -23,6 +23,7 @@ import {
   Copy,
 } from "lucide-react"
 import type { DatabaseConfig, QueryResult } from "@/lib/database"
+import { apiClient } from "@/lib/api"
 
 interface QueryInterfaceProps {
   database: DatabaseConfig
@@ -115,24 +116,24 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
   const [isExecuting, setIsExecuting] = useState(false)
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null)
   const [queryError, setQueryError] = useState<string | null>(null)
-  const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([
-    {
-      id: "1",
-      query: "SELECT COUNT(*) FROM users;",
-      timestamp: new Date(Date.now() - 3600000),
-      executionTime: 23,
-      status: "success",
-      rowCount: 1,
-    },
-    {
-      id: "2",
-      query: "SELECT * FROM invalid_table;",
-      timestamp: new Date(Date.now() - 7200000),
-      executionTime: 0,
-      status: "error",
-      error: "Table 'invalid_table' doesn't exist",
-    },
-  ])
+  const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([])
+
+  // Load query history from API on component mount
+  useEffect(() => {
+    const loadQueryHistory = async () => {
+      try {
+        const response = await fetch('/api/queries/history')
+        if (response.ok) {
+          const historyData = await response.json()
+          setQueryHistory(historyData)
+        }
+      } catch (error) {
+        console.error('Failed to load query history:', error)
+      }
+    }
+
+    loadQueryHistory()
+  }, [database?.name])
 
   const templates = queryTemplates[database.type] || []
 
@@ -143,40 +144,94 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
     setQueryError(null)
     setQueryResult(null)
 
-    // Simulate query execution
-    await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 2000))
+    try {
+      const startTime = Date.now()
+      const result = await apiClient.executeQuery(database.id, query.trim())
+      const executionTime = Date.now() - startTime
 
-    // Mock result based on query
-    const mockResult = mockQueryResults[query.trim()]
-    const isError = Math.random() < 0.2 // 20% chance of error for demo
+      if (result.success && result.data) {
+        const queryResult: QueryResult = {
+          columns: result.columns?.map((col: any) => col.name) || [],
+          rows: result.data.map((row: any) => Object.values(row)),
+          rowCount: result.data.length,
+          executionTime,
+        }
 
-    if (mockResult && !isError) {
-      setQueryResult(mockResult)
+        setQueryResult(queryResult)
 
-      // Add to history
-      const historyItem: QueryHistoryItem = {
-        id: Date.now().toString(),
-        query: query.trim(),
-        timestamp: new Date(),
-        executionTime: mockResult.executionTime,
-        status: "success",
-        rowCount: mockResult.rowCount,
+        // Save to history via API
+        const historyItem = {
+          query: query.trim(),
+          executionTime,
+          status: "success" as const,
+          rowCount: result.data.length,
+        }
+
+        try {
+          await fetch('/api/queries/history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(historyItem),
+          })
+        } catch (saveError) {
+          console.error('Failed to save query to history:', saveError)
+        }
+
+        // Update local history
+        setQueryHistory((prev) => [{
+          id: Date.now().toString(),
+          query: query.trim(),
+          timestamp: new Date(),
+          executionTime,
+          status: "success",
+          rowCount: result.data.length,
+        }, ...prev.slice(0, 9)])
+
+      } else {
+        const errorMessage = result.error || "Query execution failed"
+        setQueryError(errorMessage)
+
+        // Save error to history via API
+        const historyItem = {
+          query: query.trim(),
+          executionTime: Date.now() - startTime,
+          status: "error" as const,
+          error: errorMessage,
+        }
+
+        try {
+          await fetch('/api/queries/history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(historyItem),
+          })
+        } catch (saveError) {
+          console.error('Failed to save query error to history:', saveError)
+        }
+
+        // Update local history
+        setQueryHistory((prev) => [{
+          id: Date.now().toString(),
+          query: query.trim(),
+          timestamp: new Date(),
+          executionTime: Date.now() - startTime,
+          status: "error",
+          error: errorMessage,
+        }, ...prev.slice(0, 9)])
       }
-      setQueryHistory((prev) => [historyItem, ...prev.slice(0, 9)]) // Keep last 10
-    } else {
-      const errorMessage = isError ? "Syntax error near unexpected token" : "No results found for this query"
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Query execution failed"
       setQueryError(errorMessage)
 
-      // Add error to history
-      const historyItem: QueryHistoryItem = {
+      // Update local history for catch errors
+      setQueryHistory((prev) => [{
         id: Date.now().toString(),
         query: query.trim(),
         timestamp: new Date(),
         executionTime: 0,
         status: "error",
         error: errorMessage,
-      }
-      setQueryHistory((prev) => [historyItem, ...prev.slice(0, 9)])
+      }, ...prev.slice(0, 9)])
     }
 
     setIsExecuting(false)

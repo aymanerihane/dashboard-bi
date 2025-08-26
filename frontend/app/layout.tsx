@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { Montserrat } from "next/font/google"
 import { Open_Sans } from "next/font/google"
 import { AuthProvider } from "@/contexts/auth-context"
+import { DatabaseConnectionProvider } from "@/contexts/database-connection-context"
 import "./globals.css"
 import { Inter } from 'next/font/google'
 import { Toaster } from '@/components/ui/sonner'
@@ -38,8 +39,10 @@ export default function RootLayout({
     <html lang="en" className={`${montserrat.variable} ${openSans.variable} antialiased`}>
       <body className={inter.className} suppressHydrationWarning>
         <AuthProvider>
-          {children}
-          <Toaster />
+          <DatabaseConnectionProvider>
+            {children}
+            <Toaster />
+          </DatabaseConnectionProvider>
         </AuthProvider>
       </body>
     </html>

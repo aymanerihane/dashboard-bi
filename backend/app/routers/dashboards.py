@@ -26,7 +26,7 @@ async def create_dashboard(
         user_id=current_user.id,
         name=dashboard.name,
         description=dashboard.description,
-        charts=[chart.dict() for chart in dashboard.charts]
+        charts=dashboard.charts  # Charts are already dictionaries
     )
     
     db.add(db_dashboard)
@@ -70,7 +70,8 @@ async def update_dashboard(
     
     # Convert charts to dict if provided
     if "charts" in update_data and update_data["charts"]:
-        update_data["charts"] = [chart.dict() for chart in update_data["charts"]]
+        # Charts are already dictionaries from the frontend, no need to call .dict()
+        update_data["charts"] = update_data["charts"]
     
     for field, value in update_data.items():
         setattr(dashboard, field, value)

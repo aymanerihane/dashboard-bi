@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Textarea } from "@/components/ui/textarea"
 import {
   BarChart,
   Bar,
@@ -26,10 +27,16 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts"
-import { BarChart3, LineChartIcon, PieChartIcon, TrendingUp, Plus, Settings, Save, Trash2, Grid3X3 } from "lucide-react"
+import { BarChart3, LineChartIcon, PieChartIcon, TrendingUp, Plus, Settings, Save, Trash2, Grid3X3, Edit, Move, Maximize, Minimize, Palette } from "lucide-react"
 import type { DatabaseConfig, TableInfo, ColumnInfo } from "@/lib/database"
 import { apiClient } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
+import { Responsive, WidthProvider } from "react-grid-layout"
+import "react-grid-layout/css/styles.css"
+import "react-resizable/css/styles.css"
+import "../styles/grid-layout.css"
+
+const ResponsiveGridLayout = WidthProvider(Responsive)
 
 interface DashboardVisualizationProps {
   database?: DatabaseConfig
@@ -44,6 +51,15 @@ interface ChartConfig {
   yAxis?: string
   data: any[]
   color: string
+  width?: number  // Chart width in grid units
+  height?: number // Chart height in grid units
+  position?: number // Position in the grid (for ordering)
+  x?: number      // X position in grid
+  y?: number      // Y position in grid
+  w?: number      // Width in grid units (for react-grid-layout)
+  h?: number      // Height in grid units (for react-grid-layout)
+  columns?: { [key: string]: string } // Column name mappings for custom labels
+  customColors?: { [key: string]: string } // Custom color mappings for data series
 }
 
 interface Dashboard {
@@ -90,38 +106,14 @@ const mockChartData = {
 const chartColors = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#84cc16"]
 
 export function DashboardVisualization({ database }: DashboardVisualizationProps) {
-  const [dashboards, setDashboards] = useState<Dashboard[]>([
-    {
-      id: "1",
-      name: "Business Overview",
-      description: "Key metrics and performance indicators",
-      createdAt: new Date(Date.now() - 86400000),
-      charts: [
-        {
-          id: "1",
-          title: "User Growth",
-          type: "line",
-          query: "SELECT DATE_TRUNC('month', created_at) as month, COUNT(*) as users FROM users GROUP BY month",
-          xAxis: "month",
-          yAxis: "users",
-          data: mockChartData.userGrowth,
-          color: "#10b981",
-        },
-        {
-          id: "2",
-          title: "Order Status Distribution",
-          type: "pie",
-          query: "SELECT status, COUNT(*) as value FROM orders GROUP BY status",
-          data: mockChartData.orderStatus,
-          color: "#3b82f6",
-        },
-      ],
-    },
-  ])
-
-  const [selectedDashboard, setSelectedDashboard] = useState<Dashboard | null>(dashboards[0])
+  // State for dashboards and charts
+  const [dashboards, setDashboards] = useState<Dashboard[]>([])
+  const [selectedDashboard, setSelectedDashboard] = useState<Dashboard | null>(null)
   const [showCreateChart, setShowCreateChart] = useState(false)
   const [showCreateDashboard, setShowCreateDashboard] = useState(false)
+  const [showEditChart, setShowEditChart] = useState(false)
+  const [editingChart, setEditingChart] = useState<ChartConfig | null>(null)
+  const [loading, setLoading] = useState(false)
   const [newChart, setNewChart] = useState<Partial<ChartConfig>>({
     title: "",
     type: "bar",
@@ -140,6 +132,64 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
   const [selectedYColumn, setSelectedYColumn] = useState<string>("")
   const [loadingTables, setLoadingTables] = useState(false)
   const { toast } = useToast()
+
+  // Helper function to convert backend chart format to frontend format
+  const convertBackendChartToFrontend = (backendChart: any): ChartConfig => {
+    return {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9), // Generate unique ID
+      title: backendChart.title,
+      type: backendChart.type,
+      query: backendChart.query,
+      xAxis: backendChart.config?.xAxis,
+      yAxis: backendChart.config?.yAxis,
+      data: backendChart.config?.data || [],
+      color: backendChart.config?.color || chartColors[0],
+      width: backendChart.config?.width || 1,
+      height: backendChart.config?.height || 1,
+      position: backendChart.config?.position || 0,
+      // Grid layout properties
+      x: backendChart.config?.x || 0,
+      y: backendChart.config?.y || 0,
+      w: backendChart.config?.w || 2,
+      h: backendChart.config?.h || 2,
+      columns: backendChart.config?.columns || {},
+      customColors: backendChart.config?.customColors || {}
+    }
+  }
+
+  // Helper function to convert backend dashboard format to frontend format
+  const convertBackendDashboardToFrontend = (backendDashboard: any): Dashboard => {
+    return {
+      id: backendDashboard.id.toString(),
+      name: backendDashboard.name,
+      description: backendDashboard.description,
+      charts: backendDashboard.charts?.map(convertBackendChartToFrontend) || [],
+      createdAt: new Date(backendDashboard.created_at),
+    }
+  }
+
+  // Load dashboards from API on component mount
+  useEffect(() => {
+    const loadDashboards = async () => {
+      setLoading(true)
+      try {
+        const backendDashboards = await apiClient.getDashboards()
+        const frontendDashboards = backendDashboards.map(convertBackendDashboardToFrontend)
+        setDashboards(frontendDashboards)
+        
+        // Select first dashboard if available
+        if (frontendDashboards.length > 0) {
+          setSelectedDashboard(frontendDashboards[0])
+        }
+      } catch (error) {
+        console.error('Failed to load dashboards:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadDashboards()
+  }, []) // Remove database dependency to load dashboards immediately
 
   // Load available databases on component mount
   useEffect(() => {
@@ -346,6 +396,16 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
       )
     }
 
+    // Helper function to get display name for columns
+    const getColumnDisplayName = (columnName: string) => {
+      return chart.columns?.[columnName] || columnName
+    }
+
+    // Helper function to get custom color for data series
+    const getSeriesColor = (seriesName: string, defaultColor: string) => {
+      return chart.customColors?.[seriesName] || defaultColor
+    }
+
     const commonProps = {
       width: "100%",
       height: 300,
@@ -358,11 +418,23 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           <ResponsiveContainer {...commonProps}>
             <BarChart data={chart.data}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={chart.xAxis || Object.keys(chart.data[0] || {})[0]} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey={chart.yAxis || Object.keys(chart.data[0] || {})[1]} fill={chart.color} />
+              <XAxis 
+                dataKey={chart.xAxis || Object.keys(chart.data[0] || {})[0]} 
+                label={{ value: getColumnDisplayName(chart.xAxis || Object.keys(chart.data[0] || {})[0]), position: 'insideBottom', offset: -5 }}
+              />
+              <YAxis 
+                label={{ value: getColumnDisplayName(chart.yAxis || Object.keys(chart.data[0] || {})[1]), angle: -90, position: 'insideLeft' }}
+              />
+              <Tooltip 
+                labelFormatter={(value) => getColumnDisplayName(chart.xAxis || Object.keys(chart.data[0] || {})[0]) + ': ' + value}
+                formatter={(value, name) => [value, getColumnDisplayName(name as string)]}
+              />
+              <Legend formatter={(value) => getColumnDisplayName(value)} />
+              <Bar 
+                dataKey={chart.yAxis || Object.keys(chart.data[0] || {})[1]} 
+                fill={chart.color}
+                name={getColumnDisplayName(chart.yAxis || Object.keys(chart.data[0] || {})[1])}
+              />
             </BarChart>
           </ResponsiveContainer>
         )
@@ -372,15 +444,24 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           <ResponsiveContainer {...commonProps}>
             <LineChart data={chart.data}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={chart.xAxis || Object.keys(chart.data[0] || {})[0]} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
+              <XAxis 
+                dataKey={chart.xAxis || Object.keys(chart.data[0] || {})[0]} 
+                label={{ value: getColumnDisplayName(chart.xAxis || Object.keys(chart.data[0] || {})[0]), position: 'insideBottom', offset: -5 }}
+              />
+              <YAxis 
+                label={{ value: getColumnDisplayName(chart.yAxis || Object.keys(chart.data[0] || {})[1]), angle: -90, position: 'insideLeft' }}
+              />
+              <Tooltip 
+                labelFormatter={(value) => getColumnDisplayName(chart.xAxis || Object.keys(chart.data[0] || {})[0]) + ': ' + value}
+                formatter={(value, name) => [value, getColumnDisplayName(name as string)]}
+              />
+              <Legend formatter={(value) => getColumnDisplayName(value)} />
               <Line
                 type="monotone"
                 dataKey={chart.yAxis || Object.keys(chart.data[0] || {})[1]}
                 stroke={chart.color}
                 strokeWidth={2}
+                name={getColumnDisplayName(chart.yAxis || Object.keys(chart.data[0] || {})[1])}
               />
             </LineChart>
           </ResponsiveContainer>
@@ -422,10 +503,15 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                 nameKey="name"
               >
                 {chart.data.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color || chartColors[index % chartColors.length]} />
+                  <Cell 
+                    key={`cell-${index}`} 
+                    fill={getSeriesColor(entry.name, entry.color || chartColors[index % chartColors.length])} 
+                  />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip 
+                formatter={(value, name) => [value, getColumnDisplayName(name as string)]}
+              />
             </PieChart>
           </ResponsiveContainer>
         )
@@ -447,10 +533,15 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                 nameKey="name"
               >
                 {chart.data.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color || chartColors[index % chartColors.length]} />
+                  <Cell 
+                    key={`cell-${index}`} 
+                    fill={getSeriesColor(entry.name, entry.color || chartColors[index % chartColors.length])} 
+                  />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip 
+                formatter={(value, name) => [value, getColumnDisplayName(name as string)]}
+              />
             </PieChart>
           </ResponsiveContainer>
         )
@@ -568,7 +659,22 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         })
       }
 
-      const chart: ChartConfig = {
+      // Create chart object matching backend schema
+      const backendChart = {
+        type: newChart.type,
+        title: newChart.title,
+        query: generatedQuery,
+        database_id: selectedChartDatabase ? parseInt(selectedChartDatabase) : 1, // Use selected database ID
+        config: {
+          xAxis: selectedXColumn,
+          yAxis: needsYAxis ? selectedYColumn : undefined,
+          data: chartData,
+          color: newChart.color || chartColors[0],
+        }
+      }
+
+      // Also create local chart object for immediate UI update
+      const localChart: ChartConfig = {
         id: Date.now().toString(),
         title: newChart.title,
         type: newChart.type as "bar" | "line" | "pie" | "area" | "scatter" | "histogram" | "heatmap" | "donut",
@@ -577,15 +683,71 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         yAxis: needsYAxis ? selectedYColumn : undefined,
         data: chartData,
         color: newChart.color || chartColors[0],
+        width: 1, // Default width
+        height: 1, // Default height
+        position: selectedDashboard.charts.length, // Add to end
+        // Grid layout properties
+        x: (selectedDashboard.charts.length * 2) % 4, // Auto-position in grid
+        y: Math.floor((selectedDashboard.charts.length * 2) / 4) * 2, // Auto-position in grid
+        w: 2, // Default width in grid units
+        h: 2, // Default height in grid units
+        columns: {}, // Initialize empty column mappings
+        customColors: {} // Initialize empty custom color mappings
       }
 
-      const updatedDashboard = {
-        ...selectedDashboard,
-        charts: [...selectedDashboard.charts, chart],
-      }
+      // Update dashboard with new chart via API
+      try {
+        const newCharts = [...selectedDashboard.charts.map(chart => ({
+          type: chart.type,
+          title: chart.title,
+          query: chart.query,
+          database_id: 1, // Default database ID for existing charts
+          config: {
+            xAxis: chart.xAxis,
+            yAxis: chart.yAxis,
+            data: chart.data,
+            color: chart.color,
+          }
+        })), backendChart]
+        
+        const updatedDashboard = await apiClient.updateDashboard(parseInt(selectedDashboard.id), {
+          name: selectedDashboard.name,
+          description: selectedDashboard.description,
+          charts: newCharts
+        })
 
-      setDashboards((prev) => prev.map((d) => (d.id === selectedDashboard.id ? updatedDashboard : d)))
-      setSelectedDashboard(updatedDashboard)
+        // Reload dashboards to get the updated data with proper conversion
+        const backendDashboards = await apiClient.getDashboards()
+        const frontendDashboards = backendDashboards.map(convertBackendDashboardToFrontend)
+        setDashboards(frontendDashboards)
+        
+        // Update selected dashboard
+        const updatedSelectedDashboard = frontendDashboards.find(d => d.id === selectedDashboard.id)
+        if (updatedSelectedDashboard) {
+          setSelectedDashboard(updatedSelectedDashboard)
+        }
+        
+        toast({
+          title: "Success",
+          description: "Chart created successfully",
+        })
+      } catch (saveError) {
+        console.error('Failed to save chart:', saveError)
+        toast({
+          title: "Error",
+          description: "Failed to save chart to dashboard",
+          variant: "destructive",
+        })
+        
+        // Fallback to local state update
+        const updatedDashboard = {
+          ...selectedDashboard,
+          charts: [...selectedDashboard.charts, localChart],
+        }
+
+        setDashboards((prev) => prev.map((d) => (d.id === selectedDashboard.id ? updatedDashboard : d)))
+        setSelectedDashboard(updatedDashboard)
+      }
       
       // Reset form
       setNewChart({ title: "", type: "bar", query: "", color: chartColors[0] })
@@ -611,33 +773,254 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     }
   }
 
-  const createDashboard = () => {
+  const createDashboard = async () => {
     if (!newDashboard.name) return
 
-    const dashboard: Dashboard = {
-      id: Date.now().toString(),
-      name: newDashboard.name,
-      description: newDashboard.description,
-      charts: [],
-      createdAt: new Date(),
-    }
+    setLoading(true)
+    try {
+      const createdDashboard = await apiClient.createDashboard({
+        name: newDashboard.name,
+        description: newDashboard.description,
+        charts: []
+      })
 
-    setDashboards((prev) => [...prev, dashboard])
-    setSelectedDashboard(dashboard)
-    setNewDashboard({ name: "", description: "" })
-    setShowCreateDashboard(false)
+      // Reload dashboards to get the updated list with proper conversion
+      const backendDashboards = await apiClient.getDashboards()
+      const frontendDashboards = backendDashboards.map(convertBackendDashboardToFrontend)
+      setDashboards(frontendDashboards)
+      
+      // Select the newly created dashboard
+      const newDash = frontendDashboards.find(d => d.name === newDashboard.name)
+      if (newDash) {
+        setSelectedDashboard(newDash)
+      }
+      
+      setNewDashboard({ name: "", description: "" })
+      setShowCreateDashboard(false)
+      
+      toast({
+        title: "Success",
+        description: "Dashboard created successfully",
+      })
+    } catch (error) {
+      console.error('Error creating dashboard:', error)
+      toast({
+        title: "Error",
+        description: "Failed to create dashboard",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const deleteChart = (chartId: string) => {
+  const deleteChart = async (chartId: string) => {
     if (!selectedDashboard) return
 
-    const updatedDashboard = {
-      ...selectedDashboard,
-      charts: selectedDashboard.charts.filter((c) => c.id !== chartId),
-    }
+    try {
+      // Filter out the chart to delete
+      const remainingLocalCharts = selectedDashboard.charts.filter((c) => c.id !== chartId)
+      
+      // Convert to backend format
+      const newCharts = remainingLocalCharts.map(chart => ({
+        type: chart.type,
+        title: chart.title,
+        query: chart.query,
+        database_id: 1, // Default database ID
+        config: {
+          xAxis: chart.xAxis,
+          yAxis: chart.yAxis,
+          data: chart.data,
+          color: chart.color,
+        }
+      }))
+      
+      await apiClient.updateDashboard(parseInt(selectedDashboard.id), {
+        name: selectedDashboard.name,
+        description: selectedDashboard.description,
+        charts: newCharts
+      })
 
-    setDashboards((prev) => prev.map((d) => (d.id === selectedDashboard.id ? updatedDashboard : d)))
-    setSelectedDashboard(updatedDashboard)
+      // Reload dashboards to get the updated data with proper conversion
+      const backendDashboards = await apiClient.getDashboards()
+      const frontendDashboards = backendDashboards.map(convertBackendDashboardToFrontend)
+      setDashboards(frontendDashboards)
+      
+      // Update selected dashboard
+      const updatedSelectedDashboard = frontendDashboards.find(d => d.id === selectedDashboard.id)
+      if (updatedSelectedDashboard) {
+        setSelectedDashboard(updatedSelectedDashboard)
+      }
+      
+      toast({
+        title: "Success",
+        description: "Chart deleted successfully",
+      })
+    } catch (error) {
+      console.error('Failed to delete chart:', error)
+      toast({
+        title: "Error",
+        description: "Failed to delete chart",
+        variant: "destructive",
+      })
+      
+      // Fallback to local state update
+      const updatedDashboard = {
+        ...selectedDashboard,
+        charts: selectedDashboard.charts.filter((c) => c.id !== chartId),
+      }
+
+      setDashboards((prev) => prev.map((d) => (d.id === selectedDashboard.id ? updatedDashboard : d)))
+      setSelectedDashboard(updatedDashboard)
+    }
+  }
+
+  const deleteDashboard = async (dashboardId: string) => {
+    try {
+      await apiClient.deleteDashboard(dashboardId)
+      
+      // Reload dashboards
+      const backendDashboards = await apiClient.getDashboards()
+      const frontendDashboards = backendDashboards.map(convertBackendDashboardToFrontend)
+      setDashboards(frontendDashboards)
+      
+      // Clear selected dashboard if it was deleted
+      if (selectedDashboard?.id === dashboardId) {
+        setSelectedDashboard(frontendDashboards.length > 0 ? frontendDashboards[0] : null)
+      }
+      
+      toast({
+        title: "Success",
+        description: "Dashboard deleted successfully",
+      })
+    } catch (error) {
+      console.error('Failed to delete dashboard:', error)
+      toast({
+        title: "Error",
+        description: "Failed to delete dashboard",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const editChart = (chart: ChartConfig) => {
+    setEditingChart(chart)
+    setNewChart({
+      title: chart.title,
+      type: chart.type,
+      query: chart.query,
+      color: chart.color,
+    })
+    setShowEditChart(true)
+  }
+
+  const updateChart = async () => {
+    if (!editingChart || !selectedDashboard) return
+
+    try {
+      // Update the chart in the dashboard
+      const updatedCharts = selectedDashboard.charts.map(chart => 
+        chart.id === editingChart.id 
+          ? {
+              ...chart,
+              title: newChart.title || chart.title,
+              color: newChart.color || chart.color,
+              width: editingChart.width || 1,
+              height: editingChart.height || 1,
+            }
+          : chart
+      )
+
+      // Convert to backend format
+      const backendCharts = updatedCharts.map(chart => ({
+        type: chart.type,
+        title: chart.title,
+        query: chart.query,
+        database_id: 1,
+        config: {
+          xAxis: chart.xAxis,
+          yAxis: chart.yAxis,
+          data: chart.data,
+          color: chart.color,
+          width: chart.width,
+          height: chart.height,
+          position: chart.position,
+        }
+      }))
+
+      await apiClient.updateDashboard(parseInt(selectedDashboard.id), {
+        name: selectedDashboard.name,
+        description: selectedDashboard.description,
+        charts: backendCharts
+      })
+
+      // Reload dashboards
+      const backendDashboards = await apiClient.getDashboards()
+      const frontendDashboards = backendDashboards.map(convertBackendDashboardToFrontend)
+      setDashboards(frontendDashboards)
+      
+      const updatedSelectedDashboard = frontendDashboards.find(d => d.id === selectedDashboard.id)
+      if (updatedSelectedDashboard) {
+        setSelectedDashboard(updatedSelectedDashboard)
+      }
+
+      setShowEditChart(false)
+      setEditingChart(null)
+      setNewChart({ title: "", type: "bar", query: "", color: chartColors[0] })
+
+      toast({
+        title: "Success",
+        description: "Chart updated successfully",
+      })
+    } catch (error) {
+      console.error('Failed to update chart:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update chart",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Function to update dashboard layout and chart positions
+  const updateDashboard = async (dashboard: Dashboard) => {
+    try {
+      // Convert charts to backend format
+      const backendCharts = dashboard.charts.map(chart => ({
+        type: chart.type,
+        title: chart.title,
+        query: chart.query,
+        database_id: 1,
+        config: {
+          xAxis: chart.xAxis,
+          yAxis: chart.yAxis,
+          data: chart.data,
+          color: chart.color,
+          width: chart.width,
+          height: chart.height,
+          position: chart.position,
+          x: chart.x,
+          y: chart.y,
+          w: chart.w,
+          h: chart.h,
+          columns: chart.columns,
+          customColors: chart.customColors,
+        }
+      }))
+
+      await apiClient.updateDashboard(parseInt(dashboard.id), {
+        name: dashboard.name,
+        description: dashboard.description,
+        charts: backendCharts
+      })
+    } catch (error) {
+      console.error('Failed to update dashboard layout:', error)
+      toast({
+        title: "Warning",
+        description: "Failed to save layout changes",
+        variant: "destructive",
+      })
+    }
   }
 
   return (
@@ -867,6 +1250,183 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
               </DialogContent>
             </Dialog>
           )}
+
+          {/* Edit Chart Dialog */}
+          {editingChart && (
+            <Dialog open={showEditChart} onOpenChange={setShowEditChart}>
+              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Palette className="h-5 w-5" />
+                    Edit Chart: {editingChart.title}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-6">
+                  {/* Basic Chart Info */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-chart-title">Chart Title</Label>
+                      <Input
+                        id="edit-chart-title"
+                        placeholder="Chart Title"
+                        value={editingChart.title}
+                        onChange={(e) => setEditingChart((prev) => ({ ...prev!, title: e.target.value }))}
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-chart-type">Chart Type</Label>
+                      <Select 
+                        value={editingChart.type} 
+                        onValueChange={(value) => setEditingChart({...editingChart, type: value as any})}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="bar">Bar Chart</SelectItem>
+                          <SelectItem value="line">Line Chart</SelectItem>
+                          <SelectItem value="pie">Pie Chart</SelectItem>
+                          <SelectItem value="area">Area Chart</SelectItem>
+                          <SelectItem value="donut">Donut Chart</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Chart Colors */}
+                  <div className="space-y-2">
+                    <Label>Default Chart Color</Label>
+                    <div className="flex gap-2 flex-wrap">
+                      {chartColors.map((color) => (
+                        <Button
+                          key={color}
+                          variant={editingChart.color === color ? "default" : "outline"}
+                          size="sm"
+                          className="w-8 h-8 p-0 rounded-full"
+                          style={{ backgroundColor: color }}
+                          onClick={() => setEditingChart((prev) => ({ ...prev!, color }))}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Column Display Names */}
+                  <div className="space-y-4">
+                    <Label className="text-base font-semibold">Column Display Names</Label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {editingChart.xAxis && (
+                        <div className="space-y-2">
+                          <Label>X-Axis Label</Label>
+                          <Input
+                            placeholder={`Default: ${editingChart.xAxis}`}
+                            value={editingChart.columns?.[editingChart.xAxis] || ''}
+                            onChange={(e) => setEditingChart(prev => ({
+                              ...prev!,
+                              columns: {
+                                ...prev!.columns,
+                                [editingChart.xAxis!]: e.target.value
+                              }
+                            }))}
+                          />
+                        </div>
+                      )}
+                      {editingChart.yAxis && (
+                        <div className="space-y-2">
+                          <Label>Y-Axis Label</Label>
+                          <Input
+                            placeholder={`Default: ${editingChart.yAxis}`}
+                            value={editingChart.columns?.[editingChart.yAxis] || ''}
+                            onChange={(e) => setEditingChart(prev => ({
+                              ...prev!,
+                              columns: {
+                                ...prev!.columns,
+                                [editingChart.yAxis!]: e.target.value
+                              }
+                            }))}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Custom Colors for Data Series */}
+                  {editingChart.data && editingChart.data.length > 0 && (
+                    <div className="space-y-4">
+                      <Label className="text-base font-semibold">Custom Colors for Data Series</Label>
+                      <div className="space-y-2 max-h-40 overflow-y-auto">
+                        {Array.from(new Set(editingChart.data.map(item => 
+                          editingChart.xAxis ? item[editingChart.xAxis] : Object.keys(item)[0]
+                        ))).slice(0, 10).map((seriesName, index) => (
+                          <div key={seriesName} className="flex items-center gap-2">
+                            <Label className="min-w-0 flex-1 truncate">{seriesName}</Label>
+                            <div className="flex gap-1">
+                              {chartColors.map((color) => (
+                                <Button
+                                  key={color}
+                                  variant={editingChart.customColors?.[seriesName] === color ? "default" : "outline"}
+                                  size="sm"
+                                  className="w-6 h-6 p-0 rounded-full"
+                                  style={{ backgroundColor: color }}
+                                  onClick={() => setEditingChart(prev => ({
+                                    ...prev!,
+                                    customColors: {
+                                      ...prev!.customColors,
+                                      [seriesName]: color
+                                    }
+                                  }))}
+                                />
+                              ))}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="w-6 h-6 p-0"
+                                onClick={() => {
+                                  const newColors = { ...editingChart.customColors }
+                                  delete newColors[seriesName]
+                                  setEditingChart(prev => ({
+                                    ...prev!,
+                                    customColors: newColors
+                                  }))
+                                }}
+                                title="Reset to default"
+                              >
+                                ×
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Chart Query (Advanced) */}
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-chart-query">SQL Query (Advanced)</Label>
+                    <Textarea
+                      id="edit-chart-query"
+                      placeholder="SELECT column1, column2 FROM table_name"
+                      value={editingChart.query}
+                      onChange={(e) => setEditingChart((prev) => ({ ...prev!, query: e.target.value }))}
+                      rows={3}
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => {
+                      setShowEditChart(false)
+                      setEditingChart(null)
+                    }}>
+                      Cancel
+                    </Button>
+                    <Button onClick={updateChart}>
+                      Update Chart
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </div>
 
@@ -881,18 +1441,30 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
               <ScrollArea className="h-[400px]">
                 <div className="space-y-1 p-4">
                   {dashboards.map((dashboard) => (
-                    <Button
-                      key={dashboard.id}
-                      variant={selectedDashboard?.id === dashboard.id ? "secondary" : "ghost"}
-                      className="w-full justify-start gap-2 h-auto p-3"
-                      onClick={() => setSelectedDashboard(dashboard)}
-                    >
-                      <Grid3X3 className="h-4 w-4" />
-                      <div className="text-left">
-                        <div className="font-medium">{dashboard.name}</div>
-                        <div className="text-xs text-muted-foreground">{dashboard.charts.length} charts</div>
-                      </div>
-                    </Button>
+                    <div key={dashboard.id} className="flex items-center gap-2">
+                      <Button
+                        variant={selectedDashboard?.id === dashboard.id ? "secondary" : "ghost"}
+                        className="flex-1 justify-start gap-2 h-auto p-3"
+                        onClick={() => setSelectedDashboard(dashboard)}
+                      >
+                        <Grid3X3 className="h-4 w-4" />
+                        <div className="text-left">
+                          <div className="font-medium">{dashboard.name}</div>
+                          <div className="text-xs text-muted-foreground">{dashboard.charts.length} charts</div>
+                        </div>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          deleteDashboard(dashboard.id)
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   ))}
                 </div>
               </ScrollArea>
@@ -910,13 +1482,23 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   <p className="text-muted-foreground">{selectedDashboard.description}</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-                    <Save className="h-4 w-4" />
-                    Save
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="gap-2 bg-transparent"
+                    onClick={() => setShowCreateChart(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Chart
                   </Button>
-                  <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-                    <Settings className="h-4 w-4" />
-                    Settings
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="gap-2 bg-transparent"
+                    onClick={() => deleteDashboard(selectedDashboard.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete Dashboard
                   </Button>
                 </div>
               </div>
@@ -934,34 +1516,103 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   </CardContent>
                 </Card>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ResponsiveGridLayout
+                  className="layout"
+                  layouts={{}}
+                  breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+                  cols={{ lg: 4, md: 3, sm: 2, xs: 1, xxs: 1 }}
+                  rowHeight={200}
+                  onLayoutChange={(layout, layouts) => {
+                    // Update chart positions when layout changes
+                    if (!selectedDashboard || !selectedDashboard.charts) return
+                    
+                    const updatedCharts = selectedDashboard.charts.map(chart => {
+                      const layoutItem = layout.find(item => item.i === chart.id)
+                      if (layoutItem) {
+                        return {
+                          ...chart,
+                          x: layoutItem.x,
+                          y: layoutItem.y,
+                          w: layoutItem.w,
+                          h: layoutItem.h
+                        }
+                      }
+                      return chart
+                    })
+                    
+                    // Update the dashboard with new chart positions
+                    const updatedDashboard = {
+                      ...selectedDashboard,
+                      charts: updatedCharts
+                    }
+                    
+                    // Update in local state and backend
+                    setDashboards(prev => prev.map(d => 
+                      d.id === selectedDashboard.id ? updatedDashboard : d
+                    ))
+                    setSelectedDashboard(updatedDashboard)
+                    
+                    // Save to backend (debounced to avoid too many calls)
+                    updateDashboard(updatedDashboard)
+                  }}
+                  isDraggable={true}
+                  isResizable={true}
+                  margin={[16, 16]}
+                  containerPadding={[0, 0]}
+                >
                   {selectedDashboard.charts.map((chart) => (
-                    <Card key={chart.id}>
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            {getChartIcon(chart.type)}
-                            <CardTitle className="font-serif font-bold text-base">{chart.title}</CardTitle>
+                    <div
+                      key={chart.id}
+                      data-grid={{
+                        x: chart.x || 0,
+                        y: chart.y || 0,
+                        w: chart.w || 2,
+                        h: chart.h || 2,
+                        minW: 1,
+                        minH: 1,
+                        maxW: 4,
+                        maxH: 4
+                      }}
+                    >
+                      <Card className="h-full">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {getChartIcon(chart.type)}
+                              <CardTitle className="font-serif font-bold text-base">{chart.title}</CardTitle>
+                            </div>
+                            <div className="flex gap-1">
+                              <Badge variant="outline" className="text-xs">
+                                {chart.type.toUpperCase()}
+                              </Badge>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => editChart(chart)}
+                                className="h-6 w-6 p-0 text-muted-foreground hover:text-blue-500"
+                                title="Edit Chart"
+                              >
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => deleteChart(chart.id)}
+                                className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                                title="Delete Chart"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
                           </div>
-                          <div className="flex gap-1">
-                            <Badge variant="outline" className="text-xs">
-                              {chart.type.toUpperCase()}
-                            </Badge>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => deleteChart(chart.id)}
-                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent>{renderChart(chart)}</CardContent>
-                    </Card>
+                        </CardHeader>
+                        <CardContent className="h-[calc(100%-4rem)] overflow-hidden">
+                          {renderChart(chart)}
+                        </CardContent>
+                      </Card>
+                    </div>
                   ))}
-                </div>
+                </ResponsiveGridLayout>
               )}
             </div>
           ) : (

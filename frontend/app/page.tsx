@@ -9,26 +9,44 @@ import { DashboardVisualization } from "@/components/dashboard-visualization"
 import { DatabaseConnectionTest } from "@/components/database-connection-test"
 import { AuthPage } from "@/components/auth/auth-page"
 import { UserMenu } from "@/components/user-menu"
+import { PasswordConfirmationDialog } from "@/components/password-confirmation-dialog"
 import { Database, Code, BarChart3, Loader2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
+import { useDatabaseConnection } from "@/contexts/database-connection-context"
 import { DatabaseService, type DatabaseConfig } from "@/lib/database"
+import { PersistenceManager } from "@/lib/persistence"
+import { useToast } from "@/hooks/use-toast"
 
 export default function DatabaseDashboard() {
   const { isAuthenticated, isLoading } = useAuth()
+  const { passwordState, requestConnection, closePasswordDialog, savePassword } = useDatabaseConnection()
+  const { toast } = useToast()
   const [connections, setConnections] = useState<DatabaseConfig[]>([])
   const [selectedDatabase, setSelectedDatabase] = useState<DatabaseConfig | null>(null)
   const [activeTab, setActiveTab] = useState("explorer")
   const [queryToLoad, setQueryToLoad] = useState<string>("")
   const [loadingConnections, setLoadingConnections] = useState(false)
+  const [connectingToDatabase, setConnectingToDatabase] = useState(false)
 
   const databaseService = DatabaseService.getInstance()
+  const persistenceManager = PersistenceManager.getInstance()
 
-  // Load connections when authenticated
+  // Load connections and persisted state when authenticated
   useEffect(() => {
     if (isAuthenticated) {
       loadConnections()
+      loadPersistedState()
     }
   }, [isAuthenticated])
+
+  // Save selected database whenever it changes
+  useEffect(() => {
+    if (selectedDatabase) {
+      persistenceManager.saveSelectedDatabase(selectedDatabase)
+    } else {
+      persistenceManager.clearSelectedDatabase()
+    }
+  }, [selectedDatabase])
 
   const loadConnections = async () => {
     try {
@@ -42,8 +60,60 @@ export default function DatabaseDashboard() {
     }
   }
 
+  const loadPersistedState = () => {
+    // Restore selected database if it exists
+    const savedDatabase = persistenceManager.loadSelectedDatabase()
+    if (savedDatabase) {
+      setSelectedDatabase(savedDatabase)
+    }
+  }
+
   const handleConnect = (connection: DatabaseConfig) => {
-    setSelectedDatabase(connection)
+    requestConnection(connection, handlePasswordConfirm)
+  }
+
+  const handlePasswordConfirm = async (password: string, savePasswordOption: boolean) => {
+    if (!passwordState.selectedDatabase) return
+
+    try {
+      setConnectingToDatabase(true)
+      
+      // Test the connection with the provided password
+      const testResult = await databaseService.testConnectionWithPassword(
+        passwordState.selectedDatabase,
+        password
+      )
+
+      if (testResult.success) {
+        // Save password if requested
+        if (savePasswordOption) {
+          savePassword(passwordState.selectedDatabase.id, password)
+        }
+        
+        setSelectedDatabase(passwordState.selectedDatabase)
+        closePasswordDialog()
+        
+        toast({
+          title: "Success",
+          description: `Connected to ${passwordState.selectedDatabase.name}`,
+        })
+      } else {
+        toast({
+          title: "Connection Failed",
+          description: testResult.error || "Invalid password or connection details",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Connection error:", error)
+      toast({
+        title: "Error",
+        description: "Failed to connect to database",
+        variant: "destructive",
+      })
+    } finally {
+      setConnectingToDatabase(false)
+    }
   }
 
   const handleOpenQuery = (query: string) => {
@@ -147,6 +217,16 @@ export default function DatabaseDashboard() {
           </Tabs>
         )}
       </main>
+
+      {/* Password Confirmation Dialog */}
+      <PasswordConfirmationDialog
+        open={passwordState.showPasswordDialog}
+        onOpenChange={closePasswordDialog}
+        databaseName={passwordState.selectedDatabase?.name || ""}
+        onConfirm={handlePasswordConfirm}
+        onCancel={closePasswordDialog}
+        loading={connectingToDatabase}
+      />
     </div>
   )
 }
