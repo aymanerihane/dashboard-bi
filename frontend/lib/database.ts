@@ -1,0 +1,179 @@
+import { apiClient } from "./api"
+
+export interface DatabaseConfig {
+  id: string
+  name: string
+  type: "postgresql" | "mysql" | "sqlite"
+  host?: string
+  port?: number
+  database: string
+  username?: string
+  password?: string
+  filename?: string // for SQLite
+  status?: string
+  createdAt?: Date
+}
+
+export interface TableInfo {
+  name: string
+  columns: ColumnInfo[]
+  rowCount: number
+}
+
+export interface ColumnInfo {
+  name: string
+  type: string
+  nullable: boolean
+  primaryKey: boolean
+  defaultValue?: string
+}
+
+export interface QueryResult {
+  columns: string[]
+  rows: any[]
+  rowCount: number
+  executionTime: number
+}
+
+export class DatabaseService {
+  private static instance: DatabaseService
+
+  static getInstance(): DatabaseService {
+    if (!DatabaseService.instance) {
+      DatabaseService.instance = new DatabaseService()
+    }
+    return DatabaseService.instance
+  }
+
+  async getDatabases(): Promise<DatabaseConfig[]> {
+    try {
+      const response = await apiClient.getDatabases()
+      return response.databases.map((db) => ({
+        ...db,
+        createdAt: new Date(db.createdAt),
+      }))
+    } catch (error) {
+      console.error("Failed to fetch databases:", error)
+      return []
+    }
+  }
+
+  async createDatabase(config: Omit<DatabaseConfig, "id" | "status" | "createdAt">): Promise<void> {
+    await apiClient.createDatabase({
+      name: config.name,
+      type: config.type,
+      host: config.host || "localhost",
+      port: config.port || (config.type === "postgresql" ? 5432 : config.type === "mysql" ? 3306 : 0),
+      database: config.database,
+      username: config.username || "",
+      password: config.password || "",
+    })
+  }
+
+  async updateDatabase(id: string, config: Omit<DatabaseConfig, "id" | "status" | "createdAt">): Promise<void> {
+    await apiClient.updateDatabase(id, {
+      name: config.name,
+      type: config.type,
+      host: config.host || "localhost",
+      port: config.port || (config.type === "postgresql" ? 5432 : config.type === "mysql" ? 3306 : 0),
+      database: config.database,
+      username: config.username || "",
+      password: config.password || "",
+    })
+  }
+
+  async deleteDatabase(id: string): Promise<void> {
+    await apiClient.deleteDatabase(id)
+  }
+
+  async testConnection(id: string): Promise<{ success: boolean; message: string; latency?: number }> {
+    return await apiClient.testConnection(id)
+  }
+
+  async executeQuery(
+    databaseId: string,
+    query: string,
+  ): Promise<{
+    success: boolean
+    data: any[]
+    columns: Array<{ name: string; type: string }>
+    rowCount: number
+    executionTime: number
+  }> {
+    return await apiClient.executeQuery(databaseId, query)
+  }
+
+  async getQueryHistory(): Promise<
+    Array<{
+      id: string
+      query: string
+      executedAt: string
+      executionTime: number
+      rowCount: number
+    }>
+  > {
+    const response = await apiClient.getQueryHistory()
+    return response.history
+  }
+}
+
+// Mock table data for demo (will be replaced by real API calls later)
+export const mockTables: Record<string, TableInfo[]> = {
+  "demo-postgres": [
+    {
+      name: "users",
+      rowCount: 1250,
+      columns: [
+        { name: "id", type: "integer", nullable: false, primaryKey: true },
+        { name: "email", type: "varchar(255)", nullable: false, primaryKey: false },
+        { name: "name", type: "varchar(100)", nullable: true, primaryKey: false },
+        { name: "created_at", type: "timestamp", nullable: false, primaryKey: false },
+      ],
+    },
+    {
+      name: "orders",
+      rowCount: 3420,
+      columns: [
+        { name: "id", type: "integer", nullable: false, primaryKey: true },
+        { name: "user_id", type: "integer", nullable: false, primaryKey: false },
+        { name: "total", type: "decimal(10,2)", nullable: false, primaryKey: false },
+        { name: "status", type: "varchar(50)", nullable: false, primaryKey: false },
+        { name: "created_at", type: "timestamp", nullable: false, primaryKey: false },
+      ],
+    },
+  ],
+}
+
+export const mockDatabases: DatabaseConfig[] = [
+  {
+    id: "demo-postgres",
+    name: "Demo PostgreSQL",
+    type: "postgresql",
+    host: "localhost",
+    port: 5432,
+    database: "demo_db",
+    username: "demo_user",
+    status: "disconnected",
+    createdAt: new Date(Date.now() - 86400000 * 7),
+  },
+  {
+    id: "demo-mysql",
+    name: "Demo MySQL",
+    type: "mysql",
+    host: "localhost",
+    port: 3306,
+    database: "demo_db",
+    username: "demo_user",
+    status: "disconnected",
+    createdAt: new Date(Date.now() - 86400000 * 3),
+  },
+  {
+    id: "demo-sqlite",
+    name: "Demo SQLite",
+    type: "sqlite",
+    database: "demo.db",
+    filename: "/path/to/demo.db",
+    status: "disconnected",
+    createdAt: new Date(Date.now() - 86400000 * 1),
+  },
+]
