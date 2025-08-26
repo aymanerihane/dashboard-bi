@@ -219,4 +219,7 @@ async def get_table_data(
         "password": db_manager.decrypt_password(connection.password) if connection.password else None
     }
     
-    return await db_manager.get_table_data(connection_data, table_name, limit, offset)
+    try:
+        return await db_manager.get_table_data(connection_data, table_name, limit, offset)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching table data: {str(e)}")

@@ -103,9 +103,13 @@ export default function DatabaseDashboard() {
       <main className="container mx-auto px-6 py-8">
         {!selectedDatabase ? (
           <Tabs defaultValue="manager" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 max-w-md">
+            <TabsList className="grid w-full grid-cols-3 max-w-2xl">
               <TabsTrigger value="manager">Connection Manager</TabsTrigger>
               <TabsTrigger value="test">Connection Test</TabsTrigger>
+              <TabsTrigger value="dashboard" className="gap-2">
+                <BarChart3 className="h-4 w-4" />
+                Dashboards
+              </TabsTrigger>
             </TabsList>
             
             <TabsContent value="manager" className="mt-6">
@@ -115,10 +119,14 @@ export default function DatabaseDashboard() {
             <TabsContent value="test" className="mt-6">
               <DatabaseConnectionTest />
             </TabsContent>
+            
+            <TabsContent value="dashboard" className="mt-6">
+              <DashboardVisualization database={selectedDatabase} />
+            </TabsContent>
           </Tabs>
         ) : (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3 max-w-lg">
+            <TabsList className="grid w-full grid-cols-2 max-w-lg">
               <TabsTrigger value="explorer" className="gap-2">
                 <Database className="h-4 w-4" />
                 Schema Explorer
@@ -126,10 +134,6 @@ export default function DatabaseDashboard() {
               <TabsTrigger value="query" className="gap-2">
                 <Code className="h-4 w-4" />
                 Query Interface
-              </TabsTrigger>
-              <TabsTrigger value="dashboard" className="gap-2">
-                <BarChart3 className="h-4 w-4" />
-                Dashboards
               </TabsTrigger>
             </TabsList>
 
@@ -139,10 +143,6 @@ export default function DatabaseDashboard() {
 
             <TabsContent value="query" className="space-y-6">
               <QueryInterface database={selectedDatabase} />
-            </TabsContent>
-
-            <TabsContent value="dashboard" className="space-y-6">
-              <DashboardVisualization database={selectedDatabase} />
             </TabsContent>
           </Tabs>
         )}

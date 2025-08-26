@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -27,16 +27,18 @@ import {
   ResponsiveContainer,
 } from "recharts"
 import { BarChart3, LineChartIcon, PieChartIcon, TrendingUp, Plus, Settings, Save, Trash2, Grid3X3 } from "lucide-react"
-import type { DatabaseConfig } from "@/lib/database"
+import type { DatabaseConfig, TableInfo, ColumnInfo } from "@/lib/database"
+import { apiClient } from "@/lib/api"
+import { useToast } from "@/hooks/use-toast"
 
 interface DashboardVisualizationProps {
-  database: DatabaseConfig
+  database?: DatabaseConfig
 }
 
 interface ChartConfig {
   id: string
   title: string
-  type: "bar" | "line" | "pie" | "area"
+  type: "bar" | "line" | "pie" | "area" | "scatter" | "histogram" | "heatmap" | "donut"
   query: string
   xAxis?: string
   yAxis?: string
@@ -127,8 +129,223 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     color: chartColors[0],
   })
   const [newDashboard, setNewDashboard] = useState({ name: "", description: "" })
+  
+  // New state for dynamic form
+  const [availableDatabases, setAvailableDatabases] = useState<DatabaseConfig[]>([])
+  const [selectedChartDatabase, setSelectedChartDatabase] = useState<string>("")
+  const [availableTables, setAvailableTables] = useState<TableInfo[]>([])
+  const [selectedTable, setSelectedTable] = useState<string>("")
+  const [availableColumns, setAvailableColumns] = useState<ColumnInfo[]>([])
+  const [selectedXColumn, setSelectedXColumn] = useState<string>("")
+  const [selectedYColumn, setSelectedYColumn] = useState<string>("")
+  const [loadingTables, setLoadingTables] = useState(false)
+  const { toast } = useToast()
+
+  // Load available databases on component mount
+  useEffect(() => {
+    loadDatabases()
+  }, [])
+
+  // Load tables when database is selected
+  useEffect(() => {
+    if (selectedChartDatabase) {
+      loadTables()
+    }
+  }, [selectedChartDatabase])
+
+  // Load columns when table is selected
+  useEffect(() => {
+    if (selectedTable && availableTables.length > 0) {
+      const table = availableTables.find(t => t.name === selectedTable)
+      if (table) {
+        setAvailableColumns(table.columns)
+      }
+    }
+  }, [selectedTable, availableTables])
+
+  // Reset column selections when chart type changes
+  useEffect(() => {
+    if (newChart.type) {
+      // Clear column selections when chart type changes to force reselection
+      setSelectedXColumn("")
+      setSelectedYColumn("")
+    }
+  }, [newChart.type])
+
+  const loadDatabases = async () => {
+    try {
+      const databases = await apiClient.getDatabases()
+      setAvailableDatabases(databases)
+    } catch (error) {
+      console.error("Failed to load databases:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load databases",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const loadTables = async () => {
+    if (!selectedChartDatabase) return
+    
+    try {
+      setLoadingTables(true)
+      const tables = await apiClient.getTables(selectedChartDatabase)
+      setAvailableTables(tables)
+    } catch (error) {
+      console.error("Failed to load tables:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load tables",
+        variant: "destructive",
+      })
+    } finally {
+      setLoadingTables(false)
+    }
+  }
+
+  const generateQuery = () => {
+    if (!selectedTable || !selectedXColumn || !selectedYColumn) return ""
+    return `SELECT ${selectedXColumn}, ${selectedYColumn} FROM ${selectedTable} LIMIT 100`
+  }
+
+  // Chart type configuration
+  interface ChartTypeConfig {
+    label: string
+    requiresNumericY?: boolean
+    requiresCategoricalX?: boolean
+    requiresNumericX?: boolean
+    allowsDateX?: boolean
+    noYAxis?: boolean
+    singleValue?: boolean
+  }
+
+  const chartTypes: Record<string, ChartTypeConfig> = {
+    bar: { label: "Bar Chart", requiresNumericY: true, requiresCategoricalX: true },
+    line: { label: "Line Chart", requiresNumericY: true, allowsDateX: true },
+    area: { label: "Area Chart", requiresNumericY: true, allowsDateX: true },
+    pie: { label: "Pie Chart", requiresCategoricalX: true, noYAxis: true },
+    donut: { label: "Donut Chart", requiresCategoricalX: true, noYAxis: true },
+    scatter: { label: "Scatter Plot", requiresNumericY: true, requiresNumericX: true },
+    histogram: { label: "Histogram", requiresNumericX: true, noYAxis: true },
+    heatmap: { label: "Heatmap", requiresNumericY: true, requiresCategoricalX: true }
+  }
+
+  // Column type detection
+  const isNumericType = (type: string) => {
+    const numericTypes = ['int', 'integer', 'bigint', 'smallint', 'decimal', 'numeric', 'real', 'double', 'float', 'money', 'number']
+    return numericTypes.some(numType => type.toLowerCase().includes(numType))
+  }
+
+  const isDateType = (type: string) => {
+    const dateTypes = ['date', 'time', 'timestamp', 'datetime']
+    return dateTypes.some(dateType => type.toLowerCase().includes(dateType))
+  }
+
+  const isCategoricalType = (type: string) => {
+    const categoricalTypes = ['varchar', 'char', 'text', 'string', 'enum', 'boolean', 'bool']
+    return categoricalTypes.some(catType => type.toLowerCase().includes(catType)) || isDateType(type)
+  }
+
+  // Filter columns based on chart type and axis
+  const getCompatibleColumns = (axis: 'x' | 'y') => {
+    if (!newChart.type || !availableColumns.length) return availableColumns
+
+    const chartConfig = chartTypes[newChart.type as keyof typeof chartTypes]
+    if (!chartConfig) return availableColumns
+
+    if (axis === 'x') {
+      if (chartConfig.requiresCategoricalX) {
+        return availableColumns.filter(col => isCategoricalType(col.type))
+      }
+      if (chartConfig.requiresNumericX) {
+        return availableColumns.filter(col => isNumericType(col.type))
+      }
+      if (chartConfig.allowsDateX) {
+        return availableColumns.filter(col => isDateType(col.type) || isNumericType(col.type) || isCategoricalType(col.type))
+      }
+      return availableColumns
+    } else { // y axis
+      if (chartConfig.noYAxis) {
+        return []
+      }
+      if (chartConfig.requiresNumericY) {
+        return availableColumns.filter(col => isNumericType(col.type))
+      }
+      return availableColumns
+    }
+  }
+
+  // Get chart type description
+  const getChartTypeDescription = (chartType: keyof typeof chartTypes) => {
+    const descriptions = {
+      bar: "Best for comparing categories. Requires categorical X-axis and numeric Y-axis.",
+      line: "Perfect for trends over time. Supports dates, numbers, and categories on X-axis.",
+      area: "Like line charts but with filled area. Great for showing volumes over time.",
+      pie: "Shows proportions of a whole. Requires categorical labels and numeric values.",
+      donut: "Similar to pie chart with a center hole. Good for highlighting totals.",
+      scatter: "Shows correlation between two numeric variables. Both axes must be numeric.",
+      histogram: "Shows distribution of a single numeric variable. Only X-axis needed.",
+      heatmap: "Shows relationships between categorical variables with color intensity."
+    }
+    return descriptions[chartType] || "Select a chart type to see description."
+  }
+
+  // Get dynamic axis labels
+  const getAxisLabel = (axis: 'x' | 'y', chartType: keyof typeof chartTypes) => {
+    if (axis === 'x') {
+      switch (chartType) {
+        case 'histogram': return 'Variable Column'
+        case 'pie':
+        case 'donut': return 'Category Column'
+        case 'scatter': return 'X-Axis (Numeric)'
+        default: return 'X-Axis Column'
+      }
+    } else {
+      switch (chartType) {
+        case 'pie':
+        case 'donut': return 'Value Column'
+        case 'scatter': return 'Y-Axis (Numeric)'
+        default: return 'Y-Axis Column'
+      }
+    }
+  }
+
+  // Get dynamic axis placeholders
+  const getAxisPlaceholder = (axis: 'x' | 'y', chartType: keyof typeof chartTypes) => {
+    if (axis === 'x') {
+      switch (chartType) {
+        case 'histogram': return 'Select numeric column'
+        case 'pie':
+        case 'donut': return 'Select category column'
+        case 'scatter': return 'Select X numeric column'
+        case 'bar': return 'Select category column'
+        case 'line':
+        case 'area': return 'Select date/time column'
+        default: return 'Select X column'
+      }
+    } else {
+      switch (chartType) {
+        case 'pie':
+        case 'donut': return 'Select value column'
+        case 'scatter': return 'Select Y numeric column'
+        default: return 'Select numeric column'
+      }
+    }
+  }
 
   const renderChart = (chart: ChartConfig) => {
+    // Check if data exists and is valid
+    if (!chart.data || chart.data.length === 0) {
+      return (
+        <div className="text-center text-muted-foreground py-8">
+          <BarChart3 className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p>No data available for this chart</p>
+        </div>
+      )
+    }
+
     const commonProps = {
       width: "100%",
       height: 300,
@@ -202,6 +419,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                 outerRadius={80}
                 fill="#8884d8"
                 dataKey="value"
+                nameKey="name"
               >
                 {chart.data.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color || chartColors[index % chartColors.length]} />
@@ -212,34 +430,185 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           </ResponsiveContainer>
         )
 
+      case "donut":
+        return (
+          <ResponsiveContainer {...commonProps}>
+            <PieChart>
+              <Pie
+                data={chart.data}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                outerRadius={80}
+                innerRadius={40}
+                fill="#8884d8"
+                dataKey="value"
+                nameKey="name"
+              >
+                {chart.data.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color || chartColors[index % chartColors.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        )
+
+      case "scatter":
+        return (
+          <ResponsiveContainer {...commonProps}>
+            <LineChart data={chart.data}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey={chart.xAxis || Object.keys(chart.data[0] || {})[0]} type="number" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Line
+                type="monotone"
+                dataKey={chart.yAxis || Object.keys(chart.data[0] || {})[1]}
+                stroke={chart.color}
+                strokeWidth={0}
+                dot={{ fill: chart.color, strokeWidth: 2, r: 4 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )
+
+      case "histogram":
+        return (
+          <ResponsiveContainer {...commonProps}>
+            <BarChart data={chart.data}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey={chart.xAxis || Object.keys(chart.data[0] || {})[0]} />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="count" fill={chart.color} />
+            </BarChart>
+          </ResponsiveContainer>
+        )
+
+      case "heatmap":
+        return (
+          <div className="text-center text-muted-foreground py-8">
+            <BarChart3 className="h-8 w-8 mx-auto mb-2 opacity-50" />
+            <p>Heatmap visualization requires additional library integration</p>
+          </div>
+        )
+
       default:
-        return <div className="text-center text-muted-foreground">Unsupported chart type</div>
+        return (
+          <div className="text-center text-muted-foreground py-8">
+            <BarChart3 className="h-8 w-8 mx-auto mb-2 opacity-50" />
+            <p>Unsupported chart type: {chart.type}</p>
+          </div>
+        )
     }
   }
 
-  const createChart = () => {
-    if (!newChart.title || !newChart.query || !selectedDashboard) return
-
-    const chart: ChartConfig = {
-      id: Date.now().toString(),
-      title: newChart.title,
-      type: newChart.type as "bar" | "line" | "pie" | "area",
-      query: newChart.query,
-      xAxis: newChart.xAxis,
-      yAxis: newChart.yAxis,
-      data: mockChartData.productCategories, // Mock data for demo
-      color: newChart.color || chartColors[0],
+  // Get chart icon
+  const getChartIcon = (type: string) => {
+    switch (type) {
+      case "bar": return <BarChart3 className="h-4 w-4" />
+      case "line": return <LineChartIcon className="h-4 w-4" />
+      case "area": return <TrendingUp className="h-4 w-4" />
+      case "pie": 
+      case "donut": return <PieChartIcon className="h-4 w-4" />
+      case "scatter": return <BarChart3 className="h-4 w-4" />
+      case "histogram": return <BarChart3 className="h-4 w-4" />
+      case "heatmap": return <Grid3X3 className="h-4 w-4" />
+      default: return <BarChart3 className="h-4 w-4" />
     }
+  }
 
-    const updatedDashboard = {
-      ...selectedDashboard,
-      charts: [...selectedDashboard.charts, chart],
+  const createChart = async () => {
+    const chartConfig = chartTypes[newChart.type as keyof typeof chartTypes]
+    const needsYAxis = !chartConfig?.noYAxis
+    
+    if (!newChart.title || !selectedTable || !selectedXColumn || (needsYAxis && !selectedYColumn) || !selectedDashboard) return
+
+    // Special handling for pie and donut charts - they need categorical data with counts
+    let generatedQuery = ""
+    if (newChart.type === "pie" || newChart.type === "donut") {
+      generatedQuery = `SELECT ${selectedXColumn} as name, COUNT(*) as value FROM ${selectedTable} GROUP BY ${selectedXColumn} ORDER BY value DESC LIMIT 10`
+    } else {
+      generatedQuery = needsYAxis 
+        ? `SELECT ${selectedXColumn}, ${selectedYColumn} FROM ${selectedTable} LIMIT 100`
+        : `SELECT ${selectedXColumn} FROM ${selectedTable} LIMIT 100`
     }
+    
+    try {
+      // Execute the query to get real data
+      let chartData = []
+      if (selectedChartDatabase) {
+        console.log("Executing query:", generatedQuery)
+        console.log("Database ID:", selectedChartDatabase)
+        
+        const result = await apiClient.executeQuery(selectedChartDatabase, generatedQuery)
+        console.log("Query result:", result)
+        
+        if (result.success && result.data) {
+          chartData = result.data
+          console.log("Chart data set to:", chartData)
+        } else {
+          console.error("Query failed or no data:", result)
+          toast({
+            title: "Warning",
+            description: result.error || "Query returned no data",
+            variant: "destructive",
+          })
+        }
+      } else {
+        console.error("No database selected")
+        toast({
+          title: "Error",
+          description: "No database selected",
+          variant: "destructive",
+        })
+      }
 
-    setDashboards((prev) => prev.map((d) => (d.id === selectedDashboard.id ? updatedDashboard : d)))
-    setSelectedDashboard(updatedDashboard)
-    setNewChart({ title: "", type: "bar", query: "", color: chartColors[0] })
-    setShowCreateChart(false)
+      const chart: ChartConfig = {
+        id: Date.now().toString(),
+        title: newChart.title,
+        type: newChart.type as "bar" | "line" | "pie" | "area" | "scatter" | "histogram" | "heatmap" | "donut",
+        query: generatedQuery,
+        xAxis: selectedXColumn,
+        yAxis: needsYAxis ? selectedYColumn : undefined,
+        data: chartData,
+        color: newChart.color || chartColors[0],
+      }
+
+      const updatedDashboard = {
+        ...selectedDashboard,
+        charts: [...selectedDashboard.charts, chart],
+      }
+
+      setDashboards((prev) => prev.map((d) => (d.id === selectedDashboard.id ? updatedDashboard : d)))
+      setSelectedDashboard(updatedDashboard)
+      
+      // Reset form
+      setNewChart({ title: "", type: "bar", query: "", color: chartColors[0] })
+      setSelectedChartDatabase("")
+      setSelectedTable("")
+      setSelectedXColumn("")
+      setSelectedYColumn("")
+      setAvailableTables([])
+      setAvailableColumns([])
+      setShowCreateChart(false)
+      
+      toast({
+        title: "Success",
+        description: "Chart created successfully",
+      })
+    } catch (error) {
+      console.error("Failed to create chart:", error)
+      toast({
+        title: "Error",
+        description: "Failed to create chart",
+        variant: "destructive",
+      })
+    }
   }
 
   const createDashboard = () => {
@@ -269,21 +638,6 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
 
     setDashboards((prev) => prev.map((d) => (d.id === selectedDashboard.id ? updatedDashboard : d)))
     setSelectedDashboard(updatedDashboard)
-  }
-
-  const getChartIcon = (type: string) => {
-    switch (type) {
-      case "bar":
-        return <BarChart3 className="h-4 w-4" />
-      case "line":
-        return <LineChartIcon className="h-4 w-4" />
-      case "pie":
-        return <PieChartIcon className="h-4 w-4" />
-      case "area":
-        return <TrendingUp className="h-4 w-4" />
-      default:
-        return <BarChart3 className="h-4 w-4" />
-    }
   }
 
   return (
@@ -367,44 +721,117 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="bar">Bar Chart</SelectItem>
-                          <SelectItem value="line">Line Chart</SelectItem>
-                          <SelectItem value="area">Area Chart</SelectItem>
-                          <SelectItem value="pie">Pie Chart</SelectItem>
+                          {Object.entries(chartTypes).map(([key, config]) => (
+                            <SelectItem key={key} value={key}>
+                              {config.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {newChart.type && (
+                        <p className="text-xs text-muted-foreground">
+                          {getChartTypeDescription(newChart.type as keyof typeof chartTypes)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Database Selection */}
+                  <div className="space-y-2">
+                    <Label htmlFor="chart-database">Database</Label>
+                    <Select value={selectedChartDatabase} onValueChange={setSelectedChartDatabase}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select database" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableDatabases.map((db) => (
+                          <SelectItem key={db.id} value={db.id}>
+                            {db.name} ({db.type})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Table Selection */}
+                  <div className="space-y-2">
+                    <Label htmlFor="chart-table">Table</Label>
+                    <Select 
+                      value={selectedTable} 
+                      onValueChange={setSelectedTable}
+                      disabled={!selectedChartDatabase || loadingTables}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={loadingTables ? "Loading tables..." : "Select table"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableTables.map((table) => (
+                          <SelectItem key={table.name} value={table.name}>
+                            {table.name} ({(table.rowCount || 0).toLocaleString()} rows)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Column Selection */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="x-axis">
+                        {getAxisLabel('x', newChart.type as keyof typeof chartTypes)}
+                      </Label>
+                      <Select 
+                        value={selectedXColumn} 
+                        onValueChange={setSelectedXColumn}
+                        disabled={!selectedTable}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={getAxisPlaceholder('x', newChart.type as keyof typeof chartTypes)} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {getCompatibleColumns('x').map((column) => (
+                            <SelectItem key={column.name} value={column.name}>
+                              {column.name} ({column.type})
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
+                    {!chartTypes[newChart.type as keyof typeof chartTypes]?.noYAxis && (
+                      <div className="space-y-2">
+                        <Label htmlFor="y-axis">
+                          {getAxisLabel('y', newChart.type as keyof typeof chartTypes)}
+                        </Label>
+                        <Select 
+                          value={selectedYColumn} 
+                          onValueChange={setSelectedYColumn}
+                          disabled={!selectedTable}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder={getAxisPlaceholder('y', newChart.type as keyof typeof chartTypes)} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getCompatibleColumns('y').map((column) => (
+                              <SelectItem key={column.name} value={column.name}>
+                                {column.name} ({column.type})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="chart-query">SQL Query</Label>
-                    <textarea
-                      id="chart-query"
-                      className="w-full h-24 p-3 border rounded-md font-mono text-sm"
-                      placeholder="SELECT column1, column2 FROM table_name..."
-                      value={newChart.query}
-                      onChange={(e) => setNewChart((prev) => ({ ...prev, query: e.target.value }))}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
+
+                  {/* Generated Query Preview */}
+                  {generateQuery() && (
                     <div className="space-y-2">
-                      <Label htmlFor="x-axis">X-Axis Column</Label>
-                      <Input
-                        id="x-axis"
-                        placeholder="column_name"
-                        value={newChart.xAxis}
-                        onChange={(e) => setNewChart((prev) => ({ ...prev, xAxis: e.target.value }))}
-                      />
+                      <Label>Generated Query</Label>
+                      <div className="p-3 bg-muted rounded-md font-mono text-sm">
+                        {generateQuery()}
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="y-axis">Y-Axis Column</Label>
-                      <Input
-                        id="y-axis"
-                        placeholder="column_name"
-                        value={newChart.yAxis}
-                        onChange={(e) => setNewChart((prev) => ({ ...prev, yAxis: e.target.value }))}
-                      />
-                    </div>
-                  </div>
+                  )}
+
                   <div className="space-y-2">
                     <Label>Chart Color</Label>
                     <div className="flex gap-2">
@@ -424,7 +851,17 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                     <Button variant="outline" onClick={() => setShowCreateChart(false)}>
                       Cancel
                     </Button>
-                    <Button onClick={createChart}>Create Chart</Button>
+                    <Button 
+                      onClick={createChart}
+                      disabled={
+                        !newChart.title || 
+                        !selectedTable || 
+                        !selectedXColumn || 
+                        (chartTypes[newChart.type as keyof typeof chartTypes]?.noYAxis ? false : !selectedYColumn)
+                      }
+                    >
+                      Create Chart
+                    </Button>
                   </div>
                 </div>
               </DialogContent>

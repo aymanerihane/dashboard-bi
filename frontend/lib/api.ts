@@ -238,12 +238,22 @@ class ApiClient {
   }
 
   async getTableData(connectionId: string, tableName: string, limit: number = 10, offset: number = 0) {
-    return this.request<{
-      columns: string[]
-      rows: any[]
-      rowCount: number
-      totalRows: number
+    const result = await this.request<{
+      success: boolean
+      data: any[]
+      columns: Array<{ name: string; type: string }>
+      row_count: number
+      execution_time: number
+      error?: string
     }>(`/api/databases/${connectionId}/tables/${tableName}/data?limit=${limit}&offset=${offset}`)
+    
+    // Transform the result to match expected format
+    return {
+      columns: result.columns?.map(col => col.name) || [],
+      rows: result.data || [],
+      rowCount: result.row_count || 0,
+      totalRows: result.row_count || 0
+    }
   }
 
   // Query endpoints

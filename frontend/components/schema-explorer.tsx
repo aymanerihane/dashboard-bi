@@ -22,6 +22,10 @@ import {
   FileText,
   Code,
   Loader2,
+  Users,
+  Shield,
+  Layers,
+  HardDrive,
 } from "lucide-react"
 import type { DatabaseConfig, TableInfo } from "@/lib/database"
 import { apiClient } from "@/lib/api"
@@ -81,9 +85,26 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
     try {
       setLoadingData(true)
       console.log("Loading data for table:", selectedTable.name)
+      console.log("Database ID:", database.id)
+      
       const data = await apiClient.getTableData(database.id, selectedTable.name, 10, 0)
       console.log("Received table data:", data)
-      setTableData(data.rows || [])
+      
+      if (data && data.rows) {
+        setTableData(data.rows)
+        console.log("Table data set to:", data.rows.length, "rows")
+      } else if (data && Array.isArray(data)) {
+        setTableData(data)
+        console.log("Table data set to:", data.length, "rows (direct array)")
+      } else {
+        console.warn("Unexpected data format:", data)
+        setTableData([])
+        toast({
+          title: "Warning",
+          description: "No data found for this table",
+          variant: "default",
+        })
+      }
     } catch (error) {
       console.error("Failed to load table data:", error)
       toast({
@@ -240,7 +261,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                 </TabsList>
 
                 <TabsContent value="structure" className="mt-4">
-                  <ScrollArea className="h-[calc(100vh-28rem)]">
+                  <ScrollArea className="h-[calc(100vh-20rem)]">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -282,7 +303,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                 </TabsContent>
 
                 <TabsContent value="data" className="mt-4">
-                  <ScrollArea className="h-[calc(100vh-28rem)]">
+                  <ScrollArea className="h-[calc(100vh-20rem)]">
                     {loadingData ? (
                       <div className="flex items-center justify-center py-8">
                         <Loader2 className="h-8 w-8 animate-spin" />
@@ -322,7 +343,10 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <Card>
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">Total Rows</CardTitle>
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          <Users className="h-4 w-4 text-blue-500" />
+                          Total Rows
+                        </CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold">{selectedTable.rowCount.toLocaleString()}</div>
@@ -330,7 +354,10 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     </Card>
                     <Card>
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">Columns</CardTitle>
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          <Columns className="h-4 w-4 text-green-500" />
+                          Columns
+                        </CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold">{selectedTable.columns.length}</div>
@@ -338,7 +365,10 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     </Card>
                     <Card>
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">Primary Keys</CardTitle>
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          <Key className="h-4 w-4 text-yellow-500" />
+                          Primary Keys
+                        </CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold">
@@ -348,7 +378,10 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     </Card>
                     <Card>
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">Nullable Columns</CardTitle>
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          <Shield className="h-4 w-4 text-purple-500" />
+                          Nullable Columns
+                        </CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold">
@@ -358,7 +391,10 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     </Card>
                     <Card>
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">Data Types</CardTitle>
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          <Layers className="h-4 w-4 text-orange-500" />
+                          Data Types
+                        </CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold">
@@ -368,7 +404,10 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     </Card>
                     <Card>
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">Estimated Size</CardTitle>
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          <HardDrive className="h-4 w-4 text-red-500" />
+                          Estimated Size
+                        </CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold">

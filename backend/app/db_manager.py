@@ -14,15 +14,28 @@ import os
 
 class DatabaseManager:
     def __init__(self):
-        # Simple encryption key (use proper key management in production)
-        self.cipher_key = Fernet.generate_key()
+        # Use a fixed key for development (use proper key management in production)
+        # This ensures passwords can be decrypted after container restarts
+        import os
+        import base64
+        
+        # Generate a consistent key for development
+        dev_key = "dashboard_bi_dev_key_2024"
+        key_bytes = dev_key.ljust(32, '0')[:32].encode()  # Ensure 32 bytes
+        self.cipher_key = base64.urlsafe_b64encode(key_bytes)
         self.cipher = Fernet(self.cipher_key)
     
     def encrypt_password(self, password: str) -> str:
         return self.cipher.encrypt(password.encode()).decode()
     
     def decrypt_password(self, encrypted_password: str) -> str:
-        return self.cipher.decrypt(encrypted_password.encode()).decode()
+        try:
+            return self.cipher.decrypt(encrypted_password.encode()).decode()
+        except Exception as e:
+            # If decryption fails (e.g., due to key change), return the password as-is
+            # This is a fallback for development - in production, proper key management is needed
+            print(f"Warning: Password decryption failed: {e}")
+            return encrypted_password
     
     def build_connection_string(self, connection_data: dict) -> str:
         db_type = connection_data["db_type"]
@@ -192,10 +205,16 @@ class DatabaseManager:
                 
                 if result.returns_rows:
                     rows = result.fetchall()
-                    columns = [{"name": col, "type": str(result._metadata.keys[i])} 
-                             for i, col in enumerate(result.keys())]
+                    # Fix the column metadata handling
+                    columns = [{"name": col, "type": "string"} for col in result.keys()]
                     
-                    data = [dict(row._mapping) for row in rows]
+                    # Handle different SQLAlchemy versions for row mapping
+                    try:
+                        data = [dict(row._mapping) for row in rows]
+                    except AttributeError:
+                        # Fallback for older SQLAlchemy versions
+                        data = [dict(zip(result.keys(), row)) for row in rows]
+                    
                     row_count = len(data)
                 else:
                     data = []
