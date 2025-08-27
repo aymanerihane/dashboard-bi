@@ -78,7 +78,11 @@ class MongoDBManager:
     
     async def get_client(self, connection_data: dict) -> AsyncIOMotorClient:
         """Get MongoDB client"""
-        connection_string = self.build_connection_string(connection_data)
+        # Use Atlas connection string if available, otherwise build standard connection string
+        connection_string = connection_data.get("connection_string")
+        if not connection_string:
+            connection_string = self.build_connection_string(connection_data)
+        
         client = AsyncIOMotorClient(
             connection_string,
             serverSelectionTimeoutMS=5000,
@@ -265,7 +269,17 @@ class MongoDBManager:
         try:
             start_time = time.time()
             
-            client = await self.get_client(connection_data)
+            # Handle MongoDB Atlas connections
+            if connection_data.get("db_type") == "mongodb-atlas" and connection_data.get("connection_string"):
+                client = AsyncIOMotorClient(
+                    connection_data["connection_string"],
+                    serverSelectionTimeoutMS=5000,
+                    connectTimeoutMS=5000,
+                    socketTimeoutMS=5000
+                )
+            else:
+                client = await self.get_client(connection_data)
+            
             db = client[connection_data["database_name"]]
             
             # Parse query
@@ -345,19 +359,25 @@ class MongoDBManager:
     async def get_collection_data(self, connection_data: dict, collection_name: str, 
                                 limit: int = 10, offset: int = 0) -> Dict[str, Any]:
         """Get data from a MongoDB collection"""
-        query = {
-            "collection": collection_name,
-            "operation": "find",
-            "filter": {},
-            "projection": {}
-        }
-        
         try:
             start_time = time.time()
             
-            client = await self.get_client(connection_data)
+            # Handle MongoDB Atlas connections
+            if connection_data.get("db_type") == "mongodb-atlas" and connection_data.get("connection_string"):
+                client = AsyncIOMotorClient(
+                    connection_data["connection_string"],
+                    serverSelectionTimeoutMS=5000,
+                    connectTimeoutMS=5000,
+                    socketTimeoutMS=5000
+                )
+            else:
+                client = await self.get_client(connection_data)
+            
             db = client[connection_data["database_name"]]
             collection = db[collection_name]
+            
+            # Get total count
+            total_count = await collection.count_documents({})
             
             # Get documents with pagination
             cursor = collection.find({}).skip(offset).limit(limit)
@@ -368,29 +388,34 @@ class MongoDBManager:
             columns = []
             if data:
                 for key in data[0].keys():
-                    columns.append({"name": key, "type": "Mixed"})
+                    columns.append(key)
+            else:
+                # If no data, try to get schema from collection stats or sample
+                try:
+                    # Try to get one document to infer schema
+                    sample_doc = await collection.find_one()
+                    if sample_doc:
+                        for key in sample_doc.keys():
+                            columns.append(key)
+                    else:
+                        # If still no data, use common MongoDB fields
+                        columns = ["_id"]
+                except:
+                    columns = ["_id"]
             
             client.close()
-            execution_time = int((time.time() - start_time) * 1000)
             
+            # Return in the format expected by the frontend
             return {
-                "success": True,
-                "data": data,
                 "columns": columns,
-                "row_count": len(data),
-                "execution_time": execution_time
+                "rows": data,
+                "total_count": total_count,
+                "limit": limit,
+                "offset": offset
             }
             
         except Exception as e:
-            execution_time = int((time.time() - start_time) * 1000)
-            return {
-                "success": False,
-                "data": [],
-                "columns": [],
-                "row_count": 0,
-                "execution_time": execution_time,
-                "error": str(e)
-            }
+            raise HTTPException(status_code=500, detail=f"Failed to fetch collection data: {str(e)}")
 
 # Create global instance
 mongo_manager = MongoDBManager()

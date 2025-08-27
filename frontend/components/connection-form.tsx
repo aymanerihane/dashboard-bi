@@ -45,14 +45,27 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
   const [authenticationRequired, setAuthenticationRequired] = useState(false) // Track if auth is required
 
   // Extract password from MongoDB Atlas connection string
-  const extractPasswordFromConnectionString = (connectionString: string): string | undefined => {
+  const extractPasswordFromConnectionString = (connectionString: string): string | null => {
     try {
-      // Pattern to match mongodb+srv://<username>:<password>@...
-      const match = connectionString.match(/mongodb\+srv:\/\/[^:]+:([^@]+)@/)
-      return match ? decodeURIComponent(match[1]) : undefined
-    } catch (error) {
-      console.error('Error extracting password from connection string:', error)
-      return undefined
+      const match = connectionString.match(/mongodb\+srv:\/\/([^:]+):([^@]+)@/)
+      return match ? match[2] : null
+    } catch {
+      return null
+    }
+  }
+
+  // Extract database name from MongoDB Atlas connection string
+  const extractDatabaseFromConnectionString = (connectionString: string): string | null => {
+    try {
+      // Try to extract database from the path part of the connection string
+      const url = new URL(connectionString)
+      const pathParts = url.pathname.split('/')
+      if (pathParts.length > 1 && pathParts[1]) {
+        return pathParts[1]
+      }
+      return null
+    } catch {
+      return null
     }
   }
 
@@ -84,6 +97,16 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
     setAuthenticationRequired(false)
     setTempPassword("")
   }, [config.host, config.port, config.database, config.username, config.type, config.connectionString])
+
+  // Auto-populate database name from MongoDB Atlas connection string
+  useEffect(() => {
+    if (config.type === "mongodb-atlas" && config.connectionString && !config.database) {
+      const extractedDatabase = extractDatabaseFromConnectionString(config.connectionString)
+      if (extractedDatabase) {
+        setConfig(prev => ({ ...prev, database: extractedDatabase }))
+      }
+    }
+  }, [config.connectionString, config.type])
 
   // Auto-test connection when all required fields are filled
   useEffect(() => {
@@ -163,16 +186,17 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
             error: "Missing MongoDB Atlas connection string"
           }
         } else {
-          // Extract password from connection string for Atlas
-          const extractedPassword = extractPasswordFromConnectionString(config.connectionString);
-          
-          // Test Atlas connection
-          result = await apiClient.testConnectionStandalone({
-            type: "mongodb-atlas",
-            connectionString: config.connectionString,
-            database: config.database || "test",
-            password: extractedPassword
-          })
+                      // Extract password from connection string for Atlas
+            const extractedPassword = extractPasswordFromConnectionString(config.connectionString);
+            const extractedDatabase = extractDatabaseFromConnectionString(config.connectionString);
+            
+            // Test Atlas connection
+            result = await apiClient.testConnectionStandalone({
+              type: "mongodb-atlas",
+              connectionString: config.connectionString,
+              database: extractedDatabase || config.database || "test",
+              password: extractedPassword || undefined
+            })
         }
       } else if (config.type === "redis") {
         // Redis - host, port, and optional database index
@@ -269,11 +293,15 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
 
     let passwordToSave = tempPassword || config.password;
     
-    // For MongoDB Atlas, extract password from connection string
+    // For MongoDB Atlas, extract password and database from connection string
     if (config.type === "mongodb-atlas" && config.connectionString) {
       const extractedPassword = extractPasswordFromConnectionString(config.connectionString);
+      const extractedDatabase = extractDatabaseFromConnectionString(config.connectionString);
       if (extractedPassword) {
         passwordToSave = extractedPassword;
+      }
+      if (extractedDatabase) {
+        config.database = extractedDatabase;
       }
     }
 
@@ -293,6 +321,14 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
       cluster: config.cluster,
     }
 
+    // Debug logging for MongoDB Atlas
+    if (config.type === "mongodb-atlas") {
+      console.log("Saving MongoDB Atlas connection:")
+      console.log("Database name:", config.database)
+      console.log("Connection string:", config.connectionString)
+      console.log("Extracted database:", extractDatabaseFromConnectionString(config.connectionString || ""))
+    }
+
     onSave(newConfig)
   }
 
@@ -309,6 +345,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
       case "mongodb-atlas":
         if (!config.connectionString) return { valid: false, message: "Connection string is required" }
         if (!config.connectionString.includes("mongodb+srv://")) return { valid: false, message: "Invalid MongoDB Atlas connection string format" }
+        if (!config.database) return { valid: false, message: "Database name is required" }
         return { valid: true, message: "MongoDB Atlas configuration is valid" }
         
       case "redis":
@@ -479,6 +516,18 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
               />
               <p className="text-xs text-muted-foreground">
                 Your complete MongoDB Atlas connection string including credentials and database name
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="database">Database Name</Label>
+              <Input
+                id="database"
+                placeholder="database_name"
+                value={config.database}
+                onChange={(e) => setConfig((prev) => ({ ...prev, database: e.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Database name (will be auto-extracted from connection string if available)
               </p>
             </div>
           </div>

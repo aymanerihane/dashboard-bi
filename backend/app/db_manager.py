@@ -206,7 +206,7 @@ class DatabaseManager:
     
     async def get_tables(self, connection_data: dict) -> List[TableInfo]:
         # Route MongoDB connections to mongo_manager
-        if connection_data.get("db_type") == "mongodb":
+        if connection_data.get("db_type") in ["mongodb", "mongodb-atlas"]:
             collections = await mongo_manager.get_collections(connection_data)
             # Convert MongoDB collections to TableInfo format
             tables = []
@@ -303,7 +303,7 @@ class DatabaseManager:
 
     async def execute_query(self, connection_data: dict, query: str, limit: int = 1000) -> Dict[str, Any]:
         # Route MongoDB connections to mongo_manager
-        if connection_data.get("db_type") == "mongodb":
+        if connection_data.get("db_type") in ["mongodb", "mongodb-atlas"]:
             try:
                 # Parse query string as JSON for MongoDB
                 import json
@@ -376,7 +376,7 @@ class DatabaseManager:
     async def get_table_data(self, connection_data: dict, table_name: str, 
                            limit: int = 10, offset: int = 0) -> Dict[str, Any]:
         # Route MongoDB connections to mongo_manager
-        if connection_data.get("db_type") == "mongodb":
+        if connection_data.get("db_type") in ["mongodb", "mongodb-atlas"]:
             return await mongo_manager.get_collection_data(connection_data, table_name, limit, offset)
         
         try:

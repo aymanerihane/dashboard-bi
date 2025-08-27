@@ -158,6 +158,11 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
       return <Calendar className="h-4 w-4 text-purple-500" />
     if (lowerType.includes("decimal") || lowerType.includes("float"))
       return <BarChart3 className="h-4 w-4 text-orange-500" />
+    // MongoDB specific types
+    if (lowerType === "objectid") return <Hash className="h-4 w-4 text-red-500" />
+    if (lowerType === "array") return <Layers className="h-4 w-4 text-indigo-500" />
+    if (lowerType === "object") return <FileText className="h-4 w-4 text-cyan-500" />
+    if (lowerType === "boolean") return <Shield className="h-4 w-4 text-yellow-500" />
     return <FileText className="h-4 w-4 text-gray-500" />
   }
 
@@ -171,15 +176,63 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
       return "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200"
     if (lowerType.includes("decimal") || lowerType.includes("float"))
       return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"
+    // MongoDB specific types
+    if (lowerType === "objectid") return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+    if (lowerType === "array") return "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200"
+    if (lowerType === "object") return "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200"
+    if (lowerType === "boolean") return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
     return "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200"
   }
 
   const formatValue = (value: any) => {
     if (value === null || value === undefined) return <span className="text-muted-foreground italic">NULL</span>
-    if (typeof value === "string" && value.includes("T") && value.includes("Z")) {
-      return new Date(value).toLocaleString()
+    
+    // Handle MongoDB ObjectId
+    if (typeof value === "string" && value.length === 24 && /^[0-9a-fA-F]{24}$/.test(value)) {
+      return <span className="font-mono text-xs text-red-600 dark:text-red-400">{value}</span>
     }
-    return String(value)
+    
+    // Handle dates (both ISO strings and Date objects)
+    if (typeof value === "string" && (value.includes("T") && value.includes("Z"))) {
+      return <span className="text-purple-600 dark:text-purple-400">{new Date(value).toLocaleString()}</span>
+    }
+    if (value instanceof Date) {
+      return <span className="text-purple-600 dark:text-purple-400">{value.toLocaleString()}</span>
+    }
+    
+    // Handle arrays
+    if (Array.isArray(value)) {
+      if (value.length === 0) return <span className="text-muted-foreground italic">[]</span>
+      if (value.length <= 3) {
+        return <span className="text-indigo-600 dark:text-indigo-400">[{value.map(v => String(v)).join(", ")}]</span>
+      }
+      return <span className="text-indigo-600 dark:text-indigo-400">[{value.length} items]</span>
+    }
+    
+    // Handle objects
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      const keys = Object.keys(value)
+      if (keys.length === 0) return <span className="text-muted-foreground italic">{"{}"}</span>
+      if (keys.length <= 3) {
+        return <span className="text-cyan-600 dark:text-cyan-400">{"{" + keys.join(", ") + "}"}</span>
+      }
+      return <span className="text-cyan-600 dark:text-cyan-400">{"{" + keys.length + " fields}"}</span>
+    }
+    
+    // Handle booleans
+    if (typeof value === "boolean") {
+      return <span className={`font-medium ${value ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+        {value ? "true" : "false"}
+      </span>
+    }
+    
+    // Handle numbers
+    if (typeof value === "number") {
+      return <span className="text-blue-600 dark:text-blue-400">{value.toLocaleString()}</span>
+    }
+    
+    // Default string handling
+    return <span className="text-gray-900 dark:text-gray-100">{String(value)}</span>
   }
 
   const handleQueryTable = (tableName: string) => {

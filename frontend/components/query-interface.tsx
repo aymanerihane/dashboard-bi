@@ -88,20 +88,45 @@ const queryTemplates = {
   mongodb: [
     {
       name: "Find All Documents",
-      query: "db.collection.find().limit(10)",
-      description: "Get first 10 documents from a collection",
+      query: '{"collection": "users", "operation": "find", "filter": {}, "limit": 10}',
+      description: "Get first 10 documents from users collection",
     },
     {
-      name: "Count by Status",
-      query: "db.collection.aggregate([{$group: {_id: '$status', count: {$sum: 1}}}])",
+      name: "Find by Status",
+      query: '{"collection": "orders", "operation": "find", "filter": {"status": "pending"}, "limit": 20}',
+      description: "Find pending orders",
+    },
+    {
+      name: "Aggregate Count by Status",
+      query: '{"collection": "orders", "operation": "aggregate", "pipeline": [{"$group": {"_id": "$status", "count": {"$sum": 1}}}]}',
       description: "Count documents grouped by status field",
+    },
+    {
+      name: "Find Recent Records",
+      query: '{"collection": "logs", "operation": "find", "filter": {"createdAt": {"$gte": "2024-01-01T00:00:00Z"}}, "sort": {"createdAt": -1}, "limit": 50}',
+      description: "Find records from 2024 onwards, sorted by date",
     },
   ],
   "mongodb-atlas": [
     {
+      name: "Find All Documents",
+      query: '{"collection": "users", "operation": "find", "filter": {}, "limit": 10}',
+      description: "Get first 10 documents from users collection",
+    },
+    {
+      name: "Find by Status",
+      query: '{"collection": "orders", "operation": "find", "filter": {"status": "pending"}, "limit": 20}',
+      description: "Find pending orders",
+    },
+    {
+      name: "Aggregate Count by Status",
+      query: '{"collection": "orders", "operation": "aggregate", "pipeline": [{"$group": {"_id": "$status", "count": {"$sum": 1}}}]}',
+      description: "Count documents grouped by status field",
+    },
+    {
       name: "Find Recent Records",
-      query: "db.collection.find({createdAt: {$gte: new Date(Date.now() - 7*24*60*60*1000)}}).sort({createdAt: -1})",
-      description: "Find records from the last 7 days",
+      query: '{"collection": "logs", "operation": "find", "filter": {"createdAt": {"$gte": "2024-01-01T00:00:00Z"}}, "sort": {"createdAt": -1}, "limit": 50}',
+      description: "Find records from 2024 onwards, sorted by date",
     },
   ],
   redis: [
@@ -266,8 +291,15 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="font-serif font-bold">SQL Query Editor</CardTitle>
-                  <CardDescription>Write and execute SQL queries against {database.name}</CardDescription>
+                  <CardTitle className="font-serif font-bold">
+                    {database.type.includes('mongodb') ? 'MongoDB Query Editor' : 'SQL Query Editor'}
+                  </CardTitle>
+                  <CardDescription>
+                    {database.type.includes('mongodb') 
+                      ? `Write and execute MongoDB queries against ${database.name}` 
+                      : `Write and execute SQL queries against ${database.name}`
+                    }
+                  </CardDescription>
                 </div>
                 <div className="flex gap-2">
                   <DropdownMenu>
@@ -301,11 +333,21 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Textarea
-                  placeholder="Enter your SQL query here..."
+                  placeholder={
+                    database.type.includes('mongodb') 
+                      ? 'Enter your MongoDB query in JSON format (e.g., {"collection": "users", "operation": "find", "filter": {}, "limit": 10})'
+                      : 'Enter your SQL query here...'
+                  }
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   className="min-h-[200px] font-mono text-sm"
                 />
+                {database.type.includes('mongodb') && (
+                  <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-lg">
+                    <strong>MongoDB Query Format:</strong> Use JSON format with collection, operation, filter, and other parameters. 
+                    Supported operations: find, aggregate, count. See templates for examples.
+                  </div>
+                )}
                 <div className="flex justify-between items-center">
                   <div className="text-sm text-muted-foreground">{query.length} characters</div>
                   <Button onClick={executeQuery} disabled={!query.trim() || isExecuting} className="gap-2">

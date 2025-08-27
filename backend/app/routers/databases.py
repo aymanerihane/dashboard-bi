@@ -94,6 +94,15 @@ async def create_connection(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # Validate database name for MongoDB Atlas
+    if connection.db_type == "mongodb-atlas":
+        print(f"DEBUG: MongoDB Atlas connection - database_name: '{connection.database_name}'")
+        if not connection.database_name or connection.database_name.strip() == "":
+            raise HTTPException(
+                status_code=400, 
+                detail="Database name is required for MongoDB Atlas connections"
+            )
+    
     # Encrypt password if provided
     encrypted_password = None
     if connection.password:
@@ -151,6 +160,15 @@ async def update_connection(
         raise HTTPException(status_code=404, detail="Connection not found")
     
     update_data = connection_update.dict(exclude_unset=True)
+    
+    # Validate database name for MongoDB Atlas updates
+    if connection.db_type == "mongodb-atlas" and "database_name" in update_data:
+        print(f"DEBUG: MongoDB Atlas update - database_name: '{update_data['database_name']}'")
+        if not update_data["database_name"] or update_data["database_name"].strip() == "":
+            raise HTTPException(
+                status_code=400, 
+                detail="Database name is required for MongoDB Atlas connections"
+            )
     
     # Encrypt password if provided
     if "password" in update_data and update_data["password"]:
