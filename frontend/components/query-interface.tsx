@@ -85,6 +85,44 @@ const queryTemplates = {
       description: "Count logs by severity level",
     },
   ],
+  mongodb: [
+    {
+      name: "Find All Documents",
+      query: "db.collection.find().limit(10)",
+      description: "Get first 10 documents from a collection",
+    },
+    {
+      name: "Count by Status",
+      query: "db.collection.aggregate([{$group: {_id: '$status', count: {$sum: 1}}}])",
+      description: "Count documents grouped by status field",
+    },
+  ],
+  "mongodb-atlas": [
+    {
+      name: "Find Recent Records",
+      query: "db.collection.find({createdAt: {$gte: new Date(Date.now() - 7*24*60*60*1000)}}).sort({createdAt: -1})",
+      description: "Find records from the last 7 days",
+    },
+  ],
+  redis: [
+    {
+      name: "Get Key Info",
+      query: "INFO keyspace",
+      description: "Get information about keyspaces",
+    },
+    {
+      name: "List Keys",
+      query: "KEYS *",
+      description: "List all keys (use with caution in production)",
+    },
+  ],
+  cassandra: [
+    {
+      name: "Select from Table",
+      query: "SELECT * FROM keyspace.table LIMIT 10;",
+      description: "Get first 10 rows from a table",
+    },
+  ],
 }
 
 // Mock query results
@@ -118,21 +156,27 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
   const [queryError, setQueryError] = useState<string | null>(null)
   const [queryHistory, setQueryHistory] = useState<QueryHistoryItem[]>([])
 
+  // Helper function to reload query history
+  const reloadQueryHistory = async () => {
+    try {
+      const historyData = await apiClient.getQueryHistory(10)
+      setQueryHistory(historyData.map(item => ({
+        id: item.id.toString(),
+        query: item.query,
+        timestamp: new Date(item.executed_at),
+        executionTime: item.execution_time,
+        status: item.status as 'success' | 'error',
+        rowCount: item.row_count,
+        error: item.error_message
+      })))
+    } catch (error) {
+      console.error('Failed to load query history:', error)
+    }
+  }
+
   // Load query history from API on component mount
   useEffect(() => {
-    const loadQueryHistory = async () => {
-      try {
-        const response = await fetch('/api/queries/history')
-        if (response.ok) {
-          const historyData = await response.json()
-          setQueryHistory(historyData)
-        }
-      } catch (error) {
-        console.error('Failed to load query history:', error)
-      }
-    }
-
-    loadQueryHistory()
+    reloadQueryHistory()
   }, [database?.name])
 
   const templates = queryTemplates[database.type] || []
@@ -159,79 +203,22 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
 
         setQueryResult(queryResult)
 
-        // Save to history via API
-        const historyItem = {
-          query: query.trim(),
-          executionTime,
-          status: "success" as const,
-          rowCount: result.data.length,
-        }
-
-        try {
-          await fetch('/api/queries/history', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(historyItem),
-          })
-        } catch (saveError) {
-          console.error('Failed to save query to history:', saveError)
-        }
-
-        // Update local history
-        setQueryHistory((prev) => [{
-          id: Date.now().toString(),
-          query: query.trim(),
-          timestamp: new Date(),
-          executionTime,
-          status: "success",
-          rowCount: result.data.length,
-        }, ...prev.slice(0, 9)])
+        // Reload query history to show the latest execution
+        await reloadQueryHistory()
 
       } else {
         const errorMessage = result.error || "Query execution failed"
         setQueryError(errorMessage)
 
-        // Save error to history via API
-        const historyItem = {
-          query: query.trim(),
-          executionTime: Date.now() - startTime,
-          status: "error" as const,
-          error: errorMessage,
-        }
-
-        try {
-          await fetch('/api/queries/history', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(historyItem),
-          })
-        } catch (saveError) {
-          console.error('Failed to save query error to history:', saveError)
-        }
-
-        // Update local history
-        setQueryHistory((prev) => [{
-          id: Date.now().toString(),
-          query: query.trim(),
-          timestamp: new Date(),
-          executionTime: Date.now() - startTime,
-          status: "error",
-          error: errorMessage,
-        }, ...prev.slice(0, 9)])
+        // Reload query history to show the latest execution
+        await reloadQueryHistory()
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Query execution failed"
       setQueryError(errorMessage)
 
-      // Update local history for catch errors
-      setQueryHistory((prev) => [{
-        id: Date.now().toString(),
-        query: query.trim(),
-        timestamp: new Date(),
-        executionTime: 0,
-        status: "error",
-        error: errorMessage,
-      }, ...prev.slice(0, 9)])
+      // Reload query history in case the error was logged
+      await reloadQueryHistory()
     }
 
     setIsExecuting(false)
@@ -254,7 +241,7 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
 
     const csv = [
       queryResult.columns.join(","),
-      ...queryResult.rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
+      ...queryResult.rows.map((row: any) => row.map((cell: any) => `"${cell}"`).join(",")),
     ].join("\n")
 
     const blob = new Blob([csv], { type: "text/csv" })
@@ -433,7 +420,7 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
                   <TableBody>
                     {queryResult.rows.map((row, index) => (
                       <TableRow key={index}>
-                        {row.map((cell, cellIndex) => (
+                        {row.map((cell: any, cellIndex: number) => (
                           <TableCell key={cellIndex}>
                             {cell === null || cell === undefined ? (
                               <span className="text-muted-foreground italic">NULL</span>

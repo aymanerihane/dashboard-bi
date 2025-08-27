@@ -201,11 +201,13 @@ class ApiClient {
 
   async testConnectionStandalone(config: {
     type: string
-    host: string
-    port: number
-    database: string
-    username: string
+    host?: string
+    port?: number
+    database?: string
+    username?: string
     password?: string
+    connectionString?: string
+    file_path?: string
   }) {
     return this.request<{
       success: boolean
@@ -215,30 +217,31 @@ class ApiClient {
     }>("/api/databases/test", {
       method: "POST",
       body: JSON.stringify({
-        db_type: config.type,
+        type: config.type,
         host: config.host,
         port: config.port,
-        database_name: config.database,
+        database: config.database,
         username: config.username,
         password: config.password,
+        connectionString: config.connectionString,
+        file_path: config.file_path,
       }),
     })
   }
 
   // Database table endpoints
   async getTables(connectionId: number) {
-    return this.request<{
-      tables: Array<{
+    return this.request<Array<{
+      name: string
+      row_count: number
+      columns: Array<{
         name: string
-        columns: Array<{
-          name: string
-          type: string
-          nullable: boolean
-          primaryKey: boolean
-          defaultValue?: string
-        }>
+        type: string
+        nullable: boolean
+        primaryKey: boolean
+        defaultValue?: string
       }>
-    }>(`/api/databases/${connectionId}/tables`)
+    }>>(`/api/databases/${connectionId}/tables`)
   }
 
   async getTableData(connectionId: number, tableName: string, limit: number = 10, offset: number = 0) {

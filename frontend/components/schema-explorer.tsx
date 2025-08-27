@@ -66,7 +66,21 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
       console.log("Loading tables for database:", database.id)
       const tablesData = await apiClient.getTables(database.id)
       console.log("Received tables:", tablesData)
-      setTables(tablesData)
+      
+      // Convert backend format to frontend format
+      const convertedTables = tablesData.map(table => ({
+        name: table.name,
+        rowCount: table.row_count,
+        columns: table.columns.map(col => ({
+          name: col.name,
+          type: col.type,
+          nullable: col.nullable,
+          primaryKey: col.primaryKey,
+          defaultValue: col.defaultValue
+        }))
+      }))
+      
+      setTables(convertedTables)
     } catch (error) {
       console.error("Failed to load tables:", error)
       toast({
@@ -223,7 +237,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     {selectedTable.name}
                   </CardTitle>
                   <CardDescription>
-                    {selectedTable.columns.length} columns • {selectedTable.rowCount.toLocaleString()} rows
+                    {selectedTable.columns.length} columns • {(selectedTable.rowCount ?? 0).toLocaleString()} rows
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
@@ -349,7 +363,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="text-2xl font-bold">{selectedTable.rowCount.toLocaleString()}</div>
+                        <div className="text-2xl font-bold">{(selectedTable.rowCount ?? 0).toLocaleString()}</div>
                       </CardContent>
                     </Card>
                     <Card>
@@ -411,7 +425,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                       </CardHeader>
                       <CardContent>
                         <div className="text-2xl font-bold">
-                          {((selectedTable.rowCount * selectedTable.columns.length * 50) / 1024 / 1024).toFixed(1)} MB
+                          {(((selectedTable.rowCount ?? 0) * selectedTable.columns.length * 50) / 1024 / 1024).toFixed(1)} MB
                         </div>
                       </CardContent>
                     </Card>

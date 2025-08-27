@@ -87,6 +87,12 @@ class DatabaseManager:
         # Route MongoDB connections to mongo_manager
         if connection_data.get("db_type") == "mongodb":
             return await mongo_manager.test_connection(connection_data)
+        elif connection_data.get("db_type") == "mongodb-atlas":
+            return await mongo_manager.test_atlas_connection(connection_data)
+        elif connection_data.get("db_type") == "redis":
+            return await self.test_redis_connection(connection_data)
+        elif connection_data.get("db_type") == "cassandra":
+            return await self.test_cassandra_connection(connection_data)
         
         try:
             start_time = time.time()
@@ -248,6 +254,108 @@ class DatabaseManager:
         if connection_data.get("db_type") == "mongodb":
             return await mongo_manager.get_collection_data(connection_data, table_name, limit, offset)
         
+        try:
+            with self.get_connection(connection_data) as conn:
+                # Get total count
+                count_query = text(f"SELECT COUNT(*) FROM {table_name}")
+                count_result = conn.execute(count_query)
+                total_count = count_result.fetchone()[0]
+                
+                # Get data with limit and offset
+                if connection_data["db_type"] == "sqlite":
+                    query = text(f"SELECT * FROM {table_name} LIMIT {limit} OFFSET {offset}")
+                else:
+                    query = text(f"SELECT * FROM {table_name} LIMIT {limit} OFFSET {offset}")
+                
+                result = conn.execute(query)
+                columns = result.keys()
+                rows = [list(row) for row in result.fetchall()]
+                
+                return {
+                    "columns": list(columns),
+                    "rows": rows,
+                    "total_count": total_count,
+                    "limit": limit,
+                    "offset": offset
+                }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to fetch table data: {str(e)}")
+
+    async def test_redis_connection(self, connection_data: dict) -> ConnectionTestResult:
+        """Test Redis connection"""
+        try:
+            import redis
+            start_time = time.time()
+            
+            r = redis.Redis(
+                host=connection_data.get("host", "localhost"),
+                port=connection_data.get("port", 6379),
+                db=int(connection_data.get("database_name", "0")),
+                password=connection_data.get("password"),
+                socket_timeout=5,
+                socket_connect_timeout=5
+            )
+            
+            # Test connection with ping
+            r.ping()
+            
+            latency = int((time.time() - start_time) * 1000)
+            r.close()
+            
+            return ConnectionTestResult(
+                success=True,
+                message="Redis connection successful",
+                latency=latency
+            )
+        except Exception as e:
+            return ConnectionTestResult(
+                success=False,
+                message="Redis connection failed",
+                error=str(e)
+            )
+
+    async def test_cassandra_connection(self, connection_data: dict) -> ConnectionTestResult:
+        """Test Cassandra connection"""
+        try:
+            from cassandra.cluster import Cluster
+            from cassandra.auth import PlainTextAuthProvider
+            
+            start_time = time.time()
+            
+            # Setup authentication if provided
+            auth_provider = None
+            if connection_data.get("username") and connection_data.get("password"):
+                auth_provider = PlainTextAuthProvider(
+                    username=connection_data["username"],
+                    password=connection_data["password"]
+                )
+            
+            cluster = Cluster(
+                [connection_data.get("host", "localhost")],
+                port=connection_data.get("port", 9042),
+                auth_provider=auth_provider
+            )
+            
+            session = cluster.connect()
+            
+            # Test connection with a simple query
+            session.execute("SELECT release_version FROM system.local")
+            
+            latency = int((time.time() - start_time) * 1000)
+            session.shutdown()
+            cluster.shutdown()
+            
+            return ConnectionTestResult(
+                success=True,
+                message="Cassandra connection successful",
+                latency=latency
+            )
+        except Exception as e:
+            return ConnectionTestResult(
+                success=False,
+                message="Cassandra connection failed",
+                error=str(e)
+            )
         query = f"SELECT * FROM {table_name} LIMIT {limit} OFFSET {offset}"
         return await self.execute_query(connection_data, query, limit)
 

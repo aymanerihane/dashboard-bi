@@ -14,13 +14,17 @@ import { Database, Code, BarChart3, Loader2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import { useDatabaseConnection } from "@/contexts/database-connection-context"
 import { DatabaseService, type DatabaseConfig } from "@/lib/database"
-import { PersistenceManager } from "@/lib/persistence"
 import { useToast } from "@/hooks/use-toast"
 
 export default function DatabaseDashboard() {
   const { isAuthenticated, isLoading } = useAuth()
-  const { passwordState, requestConnection, closePasswordDialog, savePassword } = useDatabaseConnection()
   const { toast } = useToast()
+  const { 
+    passwordState,
+    requestConnection,
+    closePasswordDialog,
+    savePassword: savePasswordToStorage
+  } = useDatabaseConnection()
   const [connections, setConnections] = useState<DatabaseConfig[]>([])
   const [selectedDatabase, setSelectedDatabase] = useState<DatabaseConfig | null>(null)
   const [activeTab, setActiveTab] = useState("explorer")
@@ -29,24 +33,13 @@ export default function DatabaseDashboard() {
   const [connectingToDatabase, setConnectingToDatabase] = useState(false)
 
   const databaseService = DatabaseService.getInstance()
-  const persistenceManager = PersistenceManager.getInstance()
 
-  // Load connections and persisted state when authenticated
+  // Load connections when authenticated
   useEffect(() => {
     if (isAuthenticated) {
       loadConnections()
-      loadPersistedState()
     }
   }, [isAuthenticated])
-
-  // Save selected database whenever it changes
-  useEffect(() => {
-    if (selectedDatabase) {
-      persistenceManager.saveSelectedDatabase(selectedDatabase)
-    } else {
-      persistenceManager.clearSelectedDatabase()
-    }
-  }, [selectedDatabase])
 
   const loadConnections = async () => {
     try {
@@ -60,60 +53,64 @@ export default function DatabaseDashboard() {
     }
   }
 
-  const loadPersistedState = () => {
-    // Restore selected database if it exists
-    const savedDatabase = persistenceManager.loadSelectedDatabase()
-    if (savedDatabase) {
-      setSelectedDatabase(savedDatabase)
-    }
-  }
-
-  const handleConnect = (connection: DatabaseConfig) => {
-    requestConnection(connection, handlePasswordConfirm)
-  }
-
-  const handlePasswordConfirm = async (password: string, savePasswordOption: boolean) => {
-    if (!passwordState.selectedDatabase) return
-
+  const handleConnect = async (connection: DatabaseConfig) => {
     try {
       setConnectingToDatabase(true)
       
-      // Test the connection with the provided password
-      const testResult = await databaseService.testConnectionWithPassword(
-        passwordState.selectedDatabase,
-        password
-      )
+      // Use the password confirmation flow
+      requestConnection(connection, async (password: string, shouldSavePassword: boolean) => {
+        try {
+          // Connect using the password verification endpoint
+          const connectResult = await databaseService.connectWithPassword(connection.id, password)
 
-      if (testResult.success) {
-        // Save password if requested
-        if (savePasswordOption) {
-          savePassword(passwordState.selectedDatabase.id, password)
+          if (connectResult.success) {
+            setSelectedDatabase(connection)
+            
+            // Save password if requested
+            if (shouldSavePassword) {
+              savePasswordToStorage(connection.id.toString(), password)
+            }
+            
+            toast({
+              title: "Success",
+              description: `Connected to ${connection.name}`,
+            })
+          } else {
+            toast({
+              title: "Connection Failed",
+              description: connectResult.message || "Failed to connect to database",
+              variant: "destructive",
+            })
+          }
+        } catch (error) {
+          console.error("Connection error:", error)
+          toast({
+            title: "Error",
+            description: "Failed to connect to database",
+            variant: "destructive",
+          })
+        } finally {
+          setConnectingToDatabase(false)
+          closePasswordDialog()
         }
-        
-        setSelectedDatabase(passwordState.selectedDatabase)
-        closePasswordDialog()
-        
-        toast({
-          title: "Success",
-          description: `Connected to ${passwordState.selectedDatabase.name}`,
-        })
-      } else {
-        toast({
-          title: "Connection Failed",
-          description: testResult.error || "Invalid password or connection details",
-          variant: "destructive",
-        })
-      }
+      })
     } catch (error) {
       console.error("Connection error:", error)
       toast({
         title: "Error",
-        description: "Failed to connect to database",
+        description: "Failed to initiate connection",
         variant: "destructive",
       })
-    } finally {
       setConnectingToDatabase(false)
     }
+  }
+
+  const handleDisconnect = () => {
+    setSelectedDatabase(null)
+    toast({
+      title: "Disconnected",
+      description: "Successfully disconnected from database",
+    })
   }
 
   const handleOpenQuery = (query: string) => {
@@ -156,10 +153,11 @@ export default function DatabaseDashboard() {
                     <p className="text-sm text-muted-foreground">{selectedDatabase.database}</p>
                   </div>
                   <button
-                    onClick={() => setSelectedDatabase(null)}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={handleDisconnect}
+                    className="px-3 py-1 text-sm bg-red-100 hover:bg-red-200 text-red-700 rounded-md transition-colors flex items-center gap-1"
                   >
-                    ← Back to Connections
+                    <Database className="h-4 w-4" />
+                    Disconnect
                   </button>
                 </div>
               )}
@@ -191,7 +189,7 @@ export default function DatabaseDashboard() {
             </TabsContent>
             
             <TabsContent value="dashboard" className="mt-6">
-              <DashboardVisualization database={selectedDatabase} />
+              <DashboardVisualization database={selectedDatabase || undefined} />
             </TabsContent>
           </Tabs>
         ) : (
@@ -221,9 +219,13 @@ export default function DatabaseDashboard() {
       {/* Password Confirmation Dialog */}
       <PasswordConfirmationDialog
         open={passwordState.showPasswordDialog}
-        onOpenChange={closePasswordDialog}
+        onOpenChange={(open) => !open && closePasswordDialog()}
         databaseName={passwordState.selectedDatabase?.name || ""}
-        onConfirm={handlePasswordConfirm}
+        onConfirm={(password, savePassword) => {
+          if (passwordState.onConfirmCallback) {
+            passwordState.onConfirmCallback(password, savePassword)
+          }
+        }}
         onCancel={closePasswordDialog}
         loading={connectingToDatabase}
       />

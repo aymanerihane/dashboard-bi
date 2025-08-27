@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, CheckCircle, XCircle } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
+import { Loader2, CheckCircle, XCircle, Upload, Database, Globe, HardDrive } from "lucide-react"
 import type { DatabaseConfig } from "@/lib/database"
 import { apiClient } from "@/lib/api"
 
@@ -15,14 +16,17 @@ interface ConnectionFormProps {
   onSave: (config: DatabaseConfig) => void
   onCancel: () => void
   initialConfig?: DatabaseConfig
+  testOnly?: boolean // New prop for test-only mode
 }
 
-export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFormProps) {
+type DatabaseType = "postgresql" | "mysql" | "sqlite" | "mongodb" | "mongodb-atlas" | "redis" | "cassandra"
+
+export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = false }: ConnectionFormProps) {
   const [config, setConfig] = useState<Partial<DatabaseConfig>>({
     name: initialConfig?.name || "",
-    type: initialConfig?.type || "postgresql",
+    type: (initialConfig?.type as DatabaseType) || "postgresql",
     host: initialConfig?.host || "localhost",
-    port: initialConfig?.port || 5432,
+    port: initialConfig?.port || getDefaultPort("postgresql"),
     database: initialConfig?.database || "",
     username: initialConfig?.username || "",
     password: "", // Never store passwords
@@ -32,9 +36,25 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
   })
 
   const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null)
   const [tempPassword, setTempPassword] = useState("") // Temporary password for testing only
   const [connectionTested, setConnectionTested] = useState(false) // Track if connection was successfully tested
+  const [autoTestEnabled, setAutoTestEnabled] = useState(false)
+  const [fileContent, setFileContent] = useState<File | null>(null)
+
+  // Get default port for database type
+  function getDefaultPort(type: DatabaseType): number | undefined {
+    const defaultPorts = {
+      postgresql: 5432,
+      mysql: 3306,
+      mongodb: 27017,
+      "mongodb-atlas": 27017,
+      redis: 6379,
+      cassandra: 9042,
+      sqlite: undefined
+    }
+    return defaultPorts[type]
+  }
 
   // Clear any stored passwords on component mount and reset test status
   useEffect(() => {
@@ -46,24 +66,47 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
   useEffect(() => {
     setConnectionTested(false)
     setTestResult(null)
-  }, [config.host, config.port, config.database, config.username, config.type])
+  }, [config.host, config.port, config.database, config.username, config.type, config.connectionString])
 
-  const handleTypeChange = (type: "postgresql" | "mysql" | "sqlite" | "mongodb" | "mongodb-atlas" | "redis" | "cassandra") => {
-    const defaultPorts = {
-      postgresql: 5432,
-      mysql: 3306,
-      mongodb: 27017,
-      "mongodb-atlas": 27017,
-      redis: 6379,
-      cassandra: 9042,
-      sqlite: undefined
+  // Auto-test connection when all required fields are filled
+  useEffect(() => {
+    if (autoTestEnabled && canTest && !testing) {
+      const timer = setTimeout(() => {
+        testConnection()
+      }, 1000) // Debounce for 1 second
+      
+      return () => clearTimeout(timer)
     }
+  }, [config, tempPassword, autoTestEnabled])
 
+  const handleTypeChange = (type: DatabaseType) => {
+    const defaultPort = getDefaultPort(type)
+    
     setConfig((prev) => ({
       ...prev,
       type,
-      port: defaultPorts[type],
+      port: defaultPort,
+      // Clear type-specific fields when switching
+      connectionString: type === "mongodb-atlas" ? prev.connectionString : "",
+      filename: type === "sqlite" ? prev.filename : "",
+      host: type === "sqlite" ? undefined : prev.host || "localhost",
+      username: (type === "sqlite" || type === "mongodb-atlas") ? undefined : prev.username,
     }))
+    
+    // Clear password when switching types
+    setTempPassword("")
+  }
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file && file.name.endsWith('.db')) {
+      setFileContent(file)
+      setConfig(prev => ({
+        ...prev,
+        filename: file.name,
+        database: file.name.replace('.db', '')
+      }))
+    }
   }
 
   const testConnection = async () => {
@@ -71,31 +114,77 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
     setTestResult(null)
 
     try {
+      let result: { success: boolean; message: string; latency?: number }
+
       if (config.type === "sqlite") {
-        // SQLite validation - local only
-        const success = !!(config.database && config.filename)
-        const message = success
-          ? "SQLite connection validated successfully!"
-          : "Please provide both database name and file path for SQLite."
-        setTestResult({ success, message })
+        // SQLite validation - check if file is uploaded or path provided
+        if (fileContent) {
+          result = {
+            success: true,
+            message: "SQLite file uploaded successfully!",
+            latency: 1
+          }
+        } else if (config.filename && config.database) {
+          result = {
+            success: true,
+            message: "SQLite configuration validated successfully!",
+            latency: 1
+          }
+        } else {
+          result = {
+            success: false,
+            message: "Please upload a SQLite file or provide both database name and file path."
+          }
+        }
+      } else if (config.type === "mongodb-atlas") {
+        // MongoDB Atlas - only connection string needed
+        if (!config.connectionString) {
+          result = {
+            success: false,
+            message: "Please provide a MongoDB Atlas connection string."
+          }
+        } else {
+          // Test Atlas connection
+          result = await apiClient.testConnectionStandalone({
+            type: "mongodb-atlas",
+            connectionString: config.connectionString,
+            database: config.database || "test"
+          })
+        }
+      } else if (config.type === "redis") {
+        // Redis - host, port, and optional database index
+        if (!config.host || !config.port) {
+          result = {
+            success: false,
+            message: "Please provide host and port for Redis connection."
+          }
+        } else {
+          result = await apiClient.testConnectionStandalone({
+            type: config.type,
+            host: config.host,
+            port: config.port,
+            database: config.database || "0",
+            password: tempPassword || undefined
+          })
+        }
       } else {
-        // PostgreSQL/MySQL validation - use API
+        // Standard databases (PostgreSQL, MySQL, MongoDB, Cassandra)
         const hasRequiredFields = !!(config.host && config.database && config.username && tempPassword)
         const isValidPort = config.port && config.port > 0 && config.port < 65536
 
         if (!hasRequiredFields) {
-          setTestResult({
+          result = {
             success: false,
             message: "Please fill in all required fields (host, database, username, password)."
-          })
+          }
         } else if (!isValidPort) {
-          setTestResult({
+          result = {
             success: false,
             message: "Please provide a valid port number (1-65535)."
-          })
+          }
         } else {
           // Test connection via API
-          const result = await apiClient.testConnectionStandalone({
+          result = await apiClient.testConnectionStandalone({
             type: config.type as string,
             host: config.host!,
             port: config.port!,
@@ -103,16 +192,13 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
             username: config.username!,
             password: tempPassword,
           })
-          
-          setTestResult({
-            success: result.success,
-            message: result.message
-          })
-          
-          if (result.success) {
-            setConnectionTested(true)
-          }
         }
+      }
+      
+      setTestResult(result)
+      
+      if (result.success) {
+        setConnectionTested(true)
       }
     } catch (error) {
       setTestResult({
@@ -125,44 +211,74 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
   }
 
   const handleSave = () => {
-    if (!config.name || !config.database) return
+    if (!isValidForSave) return
 
     const newConfig: DatabaseConfig = {
       id: initialConfig?.id || `db-${Date.now()}`,
-      name: config.name,
+      name: config.name!,
       type: config.type as "postgresql" | "mysql" | "sqlite",
-      database: config.database,
+      database: config.database!,
       host: config.type !== "sqlite" ? config.host : undefined,
       port: config.type !== "sqlite" ? config.port : undefined,
-      username: config.type !== "sqlite" ? config.username : undefined,
-      password: undefined, // Never save passwords
+      username: config.type !== "sqlite" && config.type !== "mongodb-atlas" && config.type !== "redis" ? config.username : undefined,
+      password: tempPassword || config.password, // Include the password for saving
       filename: config.type === "sqlite" ? config.filename : undefined,
+      connectionString: config.type === "mongodb-atlas" ? config.connectionString : undefined,
+      cluster: config.cluster,
     }
 
     onSave(newConfig)
   }
 
-  // Validation for save button (requires successful test)
-  const isValid = config.name && config.database && (config.type === "sqlite" || (config.host && config.username)) && connectionTested
-
-  // Validation for test button (doesn't require prior testing)
-  const canTest = (() => {
-    if (!config.name || !config.database) return false
+  // Enhanced validation logic
+  const getValidationStatus = () => {
+    if (!config.name) return { valid: false, message: "Connection name is required" }
     
-    if (config.type === "sqlite") {
-      return !!(config.filename)
-    } else {
-      return !!(config.host && config.username && config.port && config.port > 0 && config.port < 65536)
+    switch (config.type) {
+      case "sqlite":
+        if (!config.database) return { valid: false, message: "Database name is required" }
+        if (!config.filename && !fileContent) return { valid: false, message: "SQLite file or file path is required" }
+        return { valid: true, message: "SQLite configuration is valid" }
+        
+      case "mongodb-atlas":
+        if (!config.connectionString) return { valid: false, message: "Connection string is required" }
+        if (!config.connectionString.includes("mongodb+srv://")) return { valid: false, message: "Invalid MongoDB Atlas connection string format" }
+        return { valid: true, message: "MongoDB Atlas configuration is valid" }
+        
+      case "redis":
+        if (!config.host) return { valid: false, message: "Host is required" }
+        if (!config.port || config.port <= 0 || config.port >= 65536) return { valid: false, message: "Valid port number is required" }
+        return { valid: true, message: "Redis configuration is valid" }
+        
+      default:
+        if (!config.host) return { valid: false, message: "Host is required" }
+        if (!config.port || config.port <= 0 || config.port >= 65536) return { valid: false, message: "Valid port number is required" }
+        if (!config.database) return { valid: false, message: "Database name is required" }
+        if (!config.username) return { valid: false, message: "Username is required" }
+        return { valid: true, message: "Configuration is valid" }
     }
-  })()
+  }
+
+  const validationStatus = getValidationStatus()
+  const canTest = validationStatus.valid && (
+    config.type === "sqlite" || 
+    config.type === "mongodb-atlas" || 
+    config.type === "redis" || 
+    tempPassword.length > 0
+  )
+  
+  const isValidForSave = !testOnly && validationStatus.valid && (testOnly || connectionTested)
 
   return (
     <Card className="w-full max-w-2xl mx-auto">
       <CardHeader>
-        <CardTitle className="font-serif font-bold">
-          {initialConfig ? "Edit Connection" : "Add Database Connection"}
+        <CardTitle className="font-serif font-bold flex items-center gap-2">
+          <Database className="h-5 w-5" />
+          {testOnly ? "Test Database Connection" : (initialConfig ? "Edit Connection" : "Add Database Connection")}
         </CardTitle>
-        <CardDescription>Configure your database connection settings</CardDescription>
+        <CardDescription>
+          {testOnly ? "Test connection to any database without saving" : "Configure your database connection settings"}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid grid-cols-2 gap-4">
@@ -182,50 +298,70 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="postgresql">PostgreSQL</SelectItem>
-                <SelectItem value="mysql">MySQL</SelectItem>
-                <SelectItem value="mongodb">MongoDB</SelectItem>
-                <SelectItem value="mongodb-atlas">MongoDB Atlas</SelectItem>
-                <SelectItem value="redis">Redis</SelectItem>
-                <SelectItem value="cassandra">Cassandra</SelectItem>
-                <SelectItem value="sqlite">SQLite</SelectItem>
+                <SelectItem value="postgresql">
+                  <div className="flex items-center gap-2">
+                    <Database className="h-4 w-4" />
+                    PostgreSQL
+                  </div>
+                </SelectItem>
+                <SelectItem value="mysql">
+                  <div className="flex items-center gap-2">
+                    <Database className="h-4 w-4" />
+                    MySQL
+                  </div>
+                </SelectItem>
+                <SelectItem value="mongodb">
+                  <div className="flex items-center gap-2">
+                    <Database className="h-4 w-4" />
+                    MongoDB
+                  </div>
+                </SelectItem>
+                <SelectItem value="mongodb-atlas">
+                  <div className="flex items-center gap-2">
+                    <Globe className="h-4 w-4" />
+                    MongoDB Atlas
+                  </div>
+                </SelectItem>
+                <SelectItem value="redis">
+                  <div className="flex items-center gap-2">
+                    <Database className="h-4 w-4" />
+                    Redis
+                  </div>
+                </SelectItem>
+                <SelectItem value="cassandra">
+                  <div className="flex items-center gap-2">
+                    <Database className="h-4 w-4" />
+                    Cassandra
+                  </div>
+                </SelectItem>
+                <SelectItem value="sqlite">
+                  <div className="flex items-center gap-2">
+                    <HardDrive className="h-4 w-4" />
+                    SQLite
+                  </div>
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
 
+        {/* Auto-test toggle */}
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="auto-test"
+            checked={autoTestEnabled}
+            onChange={(e) => setAutoTestEnabled(e.target.checked)}
+            className="rounded"
+          />
+          <Label htmlFor="auto-test" className="text-sm">
+            Auto-test connection when all fields are filled
+          </Label>
+        </div>
+
+        {/* Type-specific form sections */}
         {config.type === "sqlite" ? (
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="database">Database Name</Label>
-              <Input
-                id="database"
-                placeholder="my_database.db"
-                value={config.database}
-                onChange={(e) => setConfig((prev) => ({ ...prev, database: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="filename">File Path</Label>
-              <Input
-                id="filename"
-                placeholder="/path/to/database.db"
-                value={config.filename}
-                onChange={(e) => setConfig((prev) => ({ ...prev, filename: e.target.value }))}
-              />
-            </div>
-          </div>
-        ) : config.type === "mongodb-atlas" ? (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="connectionString">Connection String</Label>
-              <Input
-                id="connectionString"
-                placeholder="mongodb+srv://username:password@cluster.mongodb.net/"
-                value={config.connectionString}
-                onChange={(e) => setConfig((prev) => ({ ...prev, connectionString: e.target.value }))}
-              />
-            </div>
             <div className="space-y-2">
               <Label htmlFor="database">Database Name</Label>
               <Input
@@ -234,6 +370,47 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
                 value={config.database}
                 onChange={(e) => setConfig((prev) => ({ ...prev, database: e.target.value }))}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sqlite-file">SQLite File</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="sqlite-file"
+                  type="file"
+                  accept=".db,.sqlite,.sqlite3"
+                  onChange={handleFileUpload}
+                  className="flex-1"
+                />
+                <span className="text-sm text-muted-foreground self-center">or</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="filename">File Path (Alternative)</Label>
+              <Input
+                id="filename"
+                placeholder="/path/to/database.db"
+                value={config.filename}
+                onChange={(e) => setConfig((prev) => ({ ...prev, filename: e.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Provide file path if not uploading file above
+              </p>
+            </div>
+          </div>
+        ) : config.type === "mongodb-atlas" ? (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="connectionString">MongoDB Atlas Connection String</Label>
+              <Textarea
+                id="connectionString"
+                placeholder="mongodb+srv://username:password@cluster.mongodb.net/database?retryWrites=true&w=majority"
+                value={config.connectionString}
+                onChange={(e) => setConfig((prev) => ({ ...prev, connectionString: e.target.value }))}
+                rows={3}
+              />
+              <p className="text-xs text-muted-foreground">
+                Your complete MongoDB Atlas connection string including credentials and database name
+              </p>
             </div>
           </div>
         ) : (
@@ -253,14 +430,16 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
                 <Input
                   id="port"
                   type="number"
-                  placeholder={config.type === "postgresql" ? "5432" : config.type === "mysql" ? "3306" : config.type === "mongodb" ? "27017" : config.type === "redis" ? "6379" : "9042"}
-                  value={config.port}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, port: Number.parseInt(e.target.value) }))}
+                  placeholder={getDefaultPort(config.type as DatabaseType)?.toString() || ""}
+                  value={config.port || ""}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, port: Number.parseInt(e.target.value) || undefined }))}
                 />
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="database">{config.type === "redis" ? "Database Index" : "Database Name"}</Label>
+              <Label htmlFor="database">
+                {config.type === "redis" ? "Database Index" : "Database Name"}
+              </Label>
               <Input
                 id="database"
                 placeholder={config.type === "redis" ? "0" : "my_database"}
@@ -269,34 +448,43 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
               />
             </div>
             {config.type !== "redis" && (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="username">Username</Label>
-                  <Input
-                    id="username"
-                    placeholder="username"
-                    value={config.username}
-                    onChange={(e) => setConfig((prev) => ({ ...prev, username: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="temp-password">Password</Label>
-                  <Input
-                    id="temp-password"
-                    type="password"
-                    placeholder="Enter password to test connection"
-                    value={tempPassword}
-                    onChange={(e) => setTempPassword(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Password is only used for testing and will not be stored
-                  </p>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  placeholder="username"
+                  value={config.username}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, username: e.target.value }))}
+                />
               </div>
             )}
+            <div className="space-y-2">
+              <Label htmlFor="temp-password">
+                Password {config.type === "redis" ? "(Optional)" : ""}
+              </Label>
+              <Input
+                id="temp-password"
+                type="password"
+                placeholder="Enter password to test connection"
+                value={tempPassword}
+                onChange={(e) => setTempPassword(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Password will be encrypted and saved with the connection
+              </p>
+            </div>
           </div>
         )}
 
+        {/* Validation status */}
+        {!validationStatus.valid && (
+          <Alert>
+            <XCircle className="h-4 w-4" />
+            <AlertDescription>{validationStatus.message}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Test result */}
         {testResult && (
           <Alert className={testResult.success ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
             <div className="flex items-center gap-2">
@@ -305,9 +493,16 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
               ) : (
                 <XCircle className="h-4 w-4 text-red-600" />
               )}
-              <AlertDescription className={testResult.success ? "text-green-800" : "text-red-800"}>
-                {testResult.message}
-              </AlertDescription>
+              <div className="flex-1">
+                <AlertDescription className={testResult.success ? "text-green-800" : "text-red-800"}>
+                  {testResult.message}
+                  {testResult.latency && (
+                    <span className="ml-2 text-xs">
+                      ({testResult.latency}ms)
+                    </span>
+                  )}
+                </AlertDescription>
+              </div>
             </div>
           </Alert>
         )}
@@ -328,9 +523,11 @@ export function ConnectionForm({ onSave, onCancel, initialConfig }: ConnectionFo
               )}
             </Button>
           </div>
-          <Button onClick={handleSave} disabled={!isValid}>
-            {initialConfig ? "Update Connection" : "Save Connection"}
-          </Button>
+          {!testOnly && (
+            <Button onClick={handleSave} disabled={!isValidForSave}>
+              {initialConfig ? "Update Connection" : "Save Connection"}
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

@@ -33,7 +33,7 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
   const [editingConnection, setEditingConnection] = useState<DatabaseConfig | null>(null)
   const [deletingConnection, setDeletingConnection] = useState<DatabaseConfig | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [testingConnection, setTestingConnection] = useState<string | null>(null)
+  const [testingConnection, setTestingConnection] = useState<number | null>(null)
   const [passwordPrompt, setPasswordPrompt] = useState<{
     connection: DatabaseConfig
     error?: string
@@ -154,21 +154,31 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
       return
     }
 
-    // For PostgreSQL/MySQL, try to connect and show password prompt if needed
+    // For PostgreSQL/MySQL, try to connect first with stored credentials
     try {
+      setTestingConnection(connection.id)
+      
+      // First, try a regular connection (backend should have stored password)
       const result = await databaseService.testConnection(connection.id)
+      
       if (result.success) {
         onConnect(connection)
+        toast({
+          title: "Connected",
+          description: `Successfully connected to ${connection.name}`,
+        })
       } else {
-        // Connection failed, show password prompt
+        // Only show password prompt if connection fails (password needed)
         setPasswordPrompt({ connection, error: result.message })
       }
     } catch (error) {
       // Connection error, show password prompt
       setPasswordPrompt({ 
         connection, 
-        error: error instanceof Error ? error.message : "Connection failed" 
+        error: error instanceof Error ? error.message : "Connection failed - password may be required" 
       })
+    } finally {
+      setTestingConnection(null)
     }
   }
 
@@ -176,19 +186,20 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
     if (!passwordPrompt) return
 
     try {
+      // Use the connectWithPassword method to establish connection with provided password
       const result = await databaseService.connectWithPassword(passwordPrompt.connection.id, password)
       if (result.success) {
         setPasswordPrompt(null)
         onConnect(passwordPrompt.connection)
         toast({
           title: "Success",
-          description: "Connected successfully",
+          description: "Connected successfully with provided password",
         })
       } else {
         // Update error in password prompt
         setPasswordPrompt({
           ...passwordPrompt,
-          error: result.message
+          error: result.message || "Invalid password or connection failed"
         })
       }
     } catch (error) {

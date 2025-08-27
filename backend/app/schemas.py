@@ -8,6 +8,9 @@ class DatabaseType(str, Enum):
     mysql = "mysql" 
     sqlite = "sqlite"
     mongodb = "mongodb"
+    mongodb_atlas = "mongodb-atlas"
+    redis = "redis"
+    cassandra = "cassandra"
 
 class ChartType(str, Enum):
     bar = "bar"

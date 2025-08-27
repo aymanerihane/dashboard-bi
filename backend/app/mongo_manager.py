@@ -25,6 +25,56 @@ class MongoDBManager:
             return f"mongodb://{username}:{password}@{host}:{port}/{database_name}"
         else:
             return f"mongodb://{host}:{port}/{database_name}"
+
+    async def test_atlas_connection(self, connection_data: dict) -> ConnectionTestResult:
+        """Test MongoDB Atlas connection using connection string"""
+        try:
+            start_time = time.time()
+            
+            connection_string = connection_data.get("connection_string")
+            if not connection_string:
+                return ConnectionTestResult(
+                    success=False,
+                    message="Connection failed",
+                    error="MongoDB Atlas connection string is required"
+                )
+            
+            client = AsyncIOMotorClient(
+                connection_string,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
+                socketTimeoutMS=5000
+            )
+            
+            # Test connection by pinging the server
+            await client.admin.command('ping')
+            
+            latency = int((time.time() - start_time) * 1000)
+            client.close()
+            
+            return ConnectionTestResult(
+                success=True,
+                message="MongoDB Atlas connection successful",
+                latency=latency
+            )
+        except ServerSelectionTimeoutError:
+            return ConnectionTestResult(
+                success=False,
+                message="Connection failed",
+                error="Server selection timeout - check connection string and network access"
+            )
+        except ConnectionFailure as e:
+            return ConnectionTestResult(
+                success=False,
+                message="Connection failed",
+                error=f"Connection failure: {str(e)}"
+            )
+        except Exception as e:
+            return ConnectionTestResult(
+                success=False,
+                message="Connection failed",
+                error=str(e)
+            )
     
     async def get_client(self, connection_data: dict) -> AsyncIOMotorClient:
         """Get MongoDB client"""

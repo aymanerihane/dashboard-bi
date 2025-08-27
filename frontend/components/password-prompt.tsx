@@ -52,8 +52,8 @@ export function PasswordPrompt({ isOpen, onClose, onSubmit, connectionName, erro
             Password Required
           </DialogTitle>
           <DialogDescription>
-            Connection to <span className="font-medium">{connectionName}</span> failed or was lost. 
-            Please enter your password to reconnect.
+            Connection to <span className="font-medium">{connectionName}</span> requires authentication. 
+            Please enter the password for this database connection.
           </DialogDescription>
         </DialogHeader>
 

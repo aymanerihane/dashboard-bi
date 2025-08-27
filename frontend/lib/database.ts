@@ -80,8 +80,8 @@ export class DatabaseService {
     })
   }
 
-  async updateDatabase(id: string, config: Omit<DatabaseConfig, "id" | "status" | "createdAt">): Promise<void> {
-    await apiClient.updateDatabase(id, {
+  async updateDatabase(id: number, config: Omit<DatabaseConfig, "id" | "status" | "createdAt">): Promise<void> {
+    await apiClient.updateDatabase(id.toString(), {
       name: config.name,
       type: config.type,
       host: config.host || "localhost",
