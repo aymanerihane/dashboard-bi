@@ -180,6 +180,45 @@ class DatabaseManager:
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Error fetching tables: {str(e)}")
     
+    def preprocess_postgresql_query(self, query: str) -> str:
+        """
+        Preprocess PostgreSQL queries to handle case-sensitive column names.
+        Automatically quotes column names that contain mixed case characters.
+        """
+        import re
+        
+        # Pattern to match column names in SELECT statements
+        # This will match column names that contain mixed case (both upper and lowercase)
+        select_pattern = r'\bSELECT\s+(.*?)\s+FROM'
+        
+        match = re.search(select_pattern, query, re.IGNORECASE | re.DOTALL)
+        if not match:
+            return query
+        
+        columns_part = match.group(1)
+        
+        # Split by comma and process each column
+        columns = [col.strip() for col in columns_part.split(',')]
+        processed_columns = []
+        
+        for col in columns:
+            # Skip if it's already quoted, an asterisk, or contains functions
+            if (col.startswith('"') and col.endswith('"')) or col == '*' or '(' in col:
+                processed_columns.append(col)
+            else:
+                # Check if the column name contains mixed case
+                if re.search(r'[a-z].*[A-Z]|[A-Z].*[a-z]', col):
+                    # Quote the column name
+                    processed_columns.append(f'"{col}"')
+                else:
+                    processed_columns.append(col)
+        
+        # Reconstruct the query
+        new_columns_part = ', '.join(processed_columns)
+        new_query = re.sub(select_pattern, f'SELECT {new_columns_part} FROM', query, flags=re.IGNORECASE | re.DOTALL)
+        
+        return new_query
+
     async def execute_query(self, connection_data: dict, query: str, limit: int = 1000) -> Dict[str, Any]:
         # Route MongoDB connections to mongo_manager
         if connection_data.get("db_type") == "mongodb":
@@ -202,6 +241,10 @@ class DatabaseManager:
             start_time = time.time()
             
             with self.get_connection(connection_data) as conn:
+                # Preprocess PostgreSQL queries to handle case-sensitive column names
+                if connection_data.get("db_type") == "postgresql":
+                    query = self.preprocess_postgresql_query(query)
+                
                 # Add LIMIT to SELECT queries if not present
                 query_upper = query.strip().upper()
                 if query_upper.startswith('SELECT') and 'LIMIT' not in query_upper:

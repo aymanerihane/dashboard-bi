@@ -55,11 +55,11 @@ export default function DatabaseDashboard() {
 
   const handleConnect = async (connection: DatabaseConfig) => {
     try {
-      setConnectingToDatabase(true)
-      
-      // Use the password confirmation flow
+      // Use the password confirmation flow (don't set loading state yet)
       requestConnection(connection, async (password: string, shouldSavePassword: boolean) => {
         try {
+          setConnectingToDatabase(true) // Set loading only when starting actual connection
+          
           // Connect using the password verification endpoint
           const connectResult = await databaseService.connectWithPassword(connection.id, password)
 
@@ -101,7 +101,6 @@ export default function DatabaseDashboard() {
         description: "Failed to initiate connection",
         variant: "destructive",
       })
-      setConnectingToDatabase(false)
     }
   }
 

@@ -76,19 +76,19 @@ export class DatabaseService {
       port: config.port || (config.type === "postgresql" ? 5432 : config.type === "mysql" ? 3306 : 0),
       database: config.database,
       username: config.username || "",
-      password: "", // Never store passwords
+      password: config.password || undefined, // Send password if provided
     })
   }
 
-  async updateDatabase(id: number, config: Omit<DatabaseConfig, "id" | "status" | "createdAt">): Promise<void> {
-    await apiClient.updateDatabase(id.toString(), {
+  async updateDatabase(id: string, config: Omit<DatabaseConfig, "id" | "status" | "createdAt">): Promise<void> {
+    await apiClient.updateDatabase(id, {
       name: config.name,
       type: config.type,
       host: config.host || "localhost",
       port: config.port || (config.type === "postgresql" ? 5432 : config.type === "mysql" ? 3306 : 0),
       database: config.database,
       username: config.username || "",
-      password: "", // Never store passwords
+      password: config.password || undefined, // Send password if provided
     })
   }
 
