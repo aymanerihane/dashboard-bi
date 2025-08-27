@@ -389,7 +389,8 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                 </TabsContent>
 
                 <TabsContent value="data" className="mt-4">
-                  <ScrollArea className="h-[calc(100vh-20rem)]">
+                  <ScrollArea className="h-[calc(100vh-20rem)] w-full" isBothVH={true}>
+                    <div className="min-w-full">
                     {loadingData ? (
                       <div className="flex items-center justify-center py-8">
                         <Loader2 className="h-8 w-8 animate-spin" />
@@ -401,11 +402,11 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                           <TableRow>
                             {apiColumns.length > 0 ? (
                               apiColumns.map((columnName) => (
-                                <TableHead key={columnName}>{columnName}</TableHead>
+                                <TableHead key={columnName} className="whitespace-nowrap min-w-[120px]">{columnName}</TableHead>
                               ))
                             ) : (
                               selectedTable.columns.map((column) => (
-                                <TableHead key={column.name}>{column.name}</TableHead>
+                                <TableHead key={column.name} className="whitespace-nowrap min-w-[120px]">{column.name}</TableHead>
                               ))
                             )}
                           </TableRow>
@@ -415,13 +416,13 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                             <TableRow key={index}>
                               {apiColumns.length > 0 ? (
                                 apiColumns.map((columnName, columnIndex) => (
-                                  <TableCell key={columnName}>
+                                  <TableCell key={columnName} className="whitespace-nowrap min-w-[120px]">
                                     {formatValue(Array.isArray(row) ? row[columnIndex] : row[columnName])}
                                   </TableCell>
                                 ))
                               ) : (
                                 selectedTable.columns.map((column, columnIndex) => (
-                                  <TableCell key={column.name}>
+                                  <TableCell key={column.name} className="whitespace-nowrap min-w-[120px]">
                                     {formatValue(Array.isArray(row) ? row[columnIndex] : row[column.name])}
                                   </TableCell>
                                 ))
@@ -436,6 +437,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                         <p>No data available for this table</p>
                       </div>
                     )}
+                    </div>
                   </ScrollArea>
                 </TabsContent>
 

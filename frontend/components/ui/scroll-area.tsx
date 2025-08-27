@@ -5,11 +5,18 @@ import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 
 import { cn } from "@/lib/utils"
 
+interface ScrollAreaProps extends React.ComponentProps<typeof ScrollAreaPrimitive.Root> {
+  haveHorizontal?: boolean
+  isBothVH?: boolean
+}
+
 function ScrollArea({
   className,
   children,
+  haveHorizontal = false,
+  isBothVH = false,
   ...props
-}: React.ComponentProps<typeof ScrollAreaPrimitive.Root>) {
+}: ScrollAreaProps) {
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
@@ -22,7 +29,10 @@ function ScrollArea({
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
-      <ScrollBar />
+      {/* Vertical scrollbar - always show unless only horizontal is specified */}
+      {(!haveHorizontal || isBothVH) && <ScrollBar orientation="vertical" />}
+      {/* Horizontal scrollbar - show if horizontal is enabled */}
+      {(haveHorizontal || isBothVH) && <ScrollBar orientation="horizontal" />}
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>
   )
@@ -42,7 +52,7 @@ function ScrollBar({
         orientation === "vertical" &&
           "h-full w-2.5 border-l border-l-transparent",
         orientation === "horizontal" &&
-          "h-2.5 flex-col border-t border-t-transparent",
+          "w-full h-2.5 border-t border-t-transparent",
         className
       )}
       {...props}
