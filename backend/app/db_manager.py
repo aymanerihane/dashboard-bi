@@ -40,8 +40,22 @@ class DatabaseManager:
     def build_connection_string(self, connection_data: dict) -> str:
         db_type = connection_data["db_type"]
         
+        if db_type == "mongodb-atlas":
+            # For MongoDB Atlas, use the stored connection string directly
+            connection_string = connection_data.get('connection_string')
+            if not connection_string:
+                raise ValueError("MongoDB Atlas connection string is required")
+            return connection_string
+        
+        elif db_type == "sqlite":
+            # For SQLite, use the stored file path
+            file_path = connection_data.get('file_path') or connection_data.get('database_name')
+            if not file_path:
+                raise ValueError("SQLite file path is required")
+            return f"sqlite:///{file_path}"
+        
         # Map localhost to Docker service names when running in container
-        host = connection_data['host']
+        host = connection_data.get('host', 'localhost')
         if host in ['localhost', '127.0.0.1']:
             if db_type == "postgresql":
                 host = 'postgres'
@@ -51,11 +65,31 @@ class DatabaseManager:
                 host = 'mongodb'
         
         if db_type == "postgresql":
-            return f"postgresql://{connection_data['username']}:{connection_data['password']}@{host}:{connection_data['port']}/{connection_data['database_name']}"
+            username = connection_data.get('username', '')
+            password = connection_data.get('password')
+            port = connection_data.get('port', 5432)
+            database = connection_data.get('database_name', '')
+            
+            if username and password:
+                return f"postgresql://{username}:{password}@{host}:{port}/{database}"
+            elif username:
+                return f"postgresql://{username}@{host}:{port}/{database}"
+            else:
+                return f"postgresql://{host}:{port}/{database}"
+                
         elif db_type == "mysql":
-            return f"mysql+pymysql://{connection_data['username']}:{connection_data['password']}@{host}:{connection_data['port']}/{connection_data['database_name']}"
-        elif db_type == "sqlite":
-            return f"sqlite:///{connection_data['database_name']}"
+            username = connection_data.get('username', '')
+            password = connection_data.get('password')
+            port = connection_data.get('port', 3306)
+            database = connection_data.get('database_name', '')
+            
+            if username and password:
+                return f"mysql+pymysql://{username}:{password}@{host}:{port}/{database}"
+            elif username:
+                return f"mysql+pymysql://{username}@{host}:{port}/{database}"
+            else:
+                return f"mysql+pymysql://{host}:{port}/{database}"
+                
         elif db_type == "mongodb":
             # MongoDB connection strings are handled by mongo_manager
             connection_data_with_host = connection_data.copy()
@@ -97,30 +131,78 @@ class DatabaseManager:
         try:
             start_time = time.time()
             
-            with self.get_connection(connection_data) as conn:
-                # Simple test query based on database type
-                if connection_data["db_type"] == "postgresql":
-                    result = conn.execute(text("SELECT version()"))
-                elif connection_data["db_type"] == "mysql":
-                    result = conn.execute(text("SELECT VERSION()"))
-                elif connection_data["db_type"] == "sqlite":
-                    result = conn.execute(text("SELECT sqlite_version()"))
-                
-                result.fetchone()
-                
-            latency = int((time.time() - start_time) * 1000)
+            # First, try connecting without password
+            connection_data_no_pass = connection_data.copy()
+            connection_data_no_pass["password"] = None
             
-            return ConnectionTestResult(
-                success=True,
-                message="Connection successful",
-                latency=latency
-            )
+            print(f"Testing connection to: {connection_data.get('db_type')} at {connection_data.get('host')}:{connection_data.get('port')}")
+            
+            success = False
+            error_message = ""
+            
+            # Try without password first
+            try:
+                with self.get_connection(connection_data_no_pass) as conn:
+                    result = self._execute_test_query(conn, connection_data["db_type"])
+                    result.fetchone()
+                    success = True
+                    print(f"Connection successful without password for {connection_data.get('db_type')}")
+            except Exception as e:
+                error_message = str(e)
+                print(f"Connection without password failed: {error_message}")
+                
+                # If no password was provided and connection failed, suggest password is needed
+                if not connection_data.get("password"):
+                    return ConnectionTestResult(
+                        success=False,
+                        message="Authentication required - please provide a password",
+                        error="Connection failed without credentials"
+                    )
+                
+                # Try with password if provided
+                try:
+                    with self.get_connection(connection_data) as conn:
+                        result = self._execute_test_query(conn, connection_data["db_type"])
+                        result.fetchone()
+                        success = True
+                        print(f"Connection successful with password for {connection_data.get('db_type')}")
+                except Exception as e2:
+                    error_message = str(e2)
+                    print(f"Connection with password also failed: {error_message}")
+                
+            if success:
+                latency = int((time.time() - start_time) * 1000)
+                return ConnectionTestResult(
+                    success=True,
+                    message="Connection successful",
+                    latency=latency
+                )
+            else:
+                return ConnectionTestResult(
+                    success=False,
+                    message="Connection failed",
+                    error=error_message
+                )
+                
         except Exception as e:
+            print(f"Connection test failed for {connection_data.get('db_type')}: {str(e)}")
             return ConnectionTestResult(
                 success=False,
                 message="Connection failed",
                 error=str(e)
             )
+    
+    def _execute_test_query(self, conn, db_type: str):
+        """Execute appropriate test query based on database type"""
+        if db_type == "postgresql":
+            return conn.execute(text("SELECT version()"))
+        elif db_type == "mysql":
+            return conn.execute(text("SELECT VERSION()"))
+        elif db_type == "sqlite":
+            return conn.execute(text("SELECT sqlite_version()"))
+        else:
+            # Generic test for other databases
+            return conn.execute(text("SELECT 1"))
     
     async def get_tables(self, connection_data: dict) -> List[TableInfo]:
         # Route MongoDB connections to mongo_manager
@@ -330,26 +412,64 @@ class DatabaseManager:
             import redis
             start_time = time.time()
             
-            r = redis.Redis(
-                host=connection_data.get("host", "localhost"),
-                port=connection_data.get("port", 6379),
-                db=int(connection_data.get("database_name", "0")),
-                password=connection_data.get("password"),
-                socket_timeout=5,
-                socket_connect_timeout=5
-            )
-            
-            # Test connection with ping
-            r.ping()
-            
-            latency = int((time.time() - start_time) * 1000)
-            r.close()
-            
-            return ConnectionTestResult(
-                success=True,
-                message="Redis connection successful",
-                latency=latency
-            )
+            # First try without password
+            try:
+                r = redis.Redis(
+                    host=connection_data.get("host", "localhost"),
+                    port=connection_data.get("port", 6379),
+                    db=int(connection_data.get("database_name", "0")),
+                    password=None,  # Try without password first
+                    socket_timeout=5,
+                    socket_connect_timeout=5
+                )
+                
+                # Test connection with ping
+                r.ping()
+                r.close()
+                
+                latency = int((time.time() - start_time) * 1000)
+                return ConnectionTestResult(
+                    success=True,
+                    message="Redis connection successful (no authentication)",
+                    latency=latency
+                )
+            except Exception as e1:
+                # If no password provided and connection failed
+                if not connection_data.get("password"):
+                    return ConnectionTestResult(
+                        success=False,
+                        message="Authentication required - please provide a password",
+                        error="Redis connection failed without password"
+                    )
+                
+                # Try with password
+                try:
+                    r = redis.Redis(
+                        host=connection_data.get("host", "localhost"),
+                        port=connection_data.get("port", 6379),
+                        db=int(connection_data.get("database_name", "0")),
+                        password=connection_data.get("password"),
+                        socket_timeout=5,
+                        socket_connect_timeout=5
+                    )
+                    
+                    # Test connection with ping
+                    r.ping()
+                    r.close()
+                    
+                    latency = int((time.time() - start_time) * 1000)
+                    return ConnectionTestResult(
+                        success=True,
+                        message="Redis connection successful",
+                        latency=latency
+                    )
+                except Exception as e2:
+                    return ConnectionTestResult(
+                        success=False,
+                        message="Redis connection failed",
+                        error=str(e2)
+                    )
+                    
         except Exception as e:
             return ConnectionTestResult(
                 success=False,
@@ -365,34 +485,71 @@ class DatabaseManager:
             
             start_time = time.time()
             
-            # Setup authentication if provided
-            auth_provider = None
-            if connection_data.get("username") and connection_data.get("password"):
-                auth_provider = PlainTextAuthProvider(
-                    username=connection_data["username"],
-                    password=connection_data["password"]
+            # First try without authentication
+            try:
+                cluster = Cluster(
+                    [connection_data.get("host", "localhost")],
+                    port=connection_data.get("port", 9042),
+                    auth_provider=None
                 )
-            
-            cluster = Cluster(
-                [connection_data.get("host", "localhost")],
-                port=connection_data.get("port", 9042),
-                auth_provider=auth_provider
-            )
-            
-            session = cluster.connect()
-            
-            # Test connection with a simple query
-            session.execute("SELECT release_version FROM system.local")
-            
-            latency = int((time.time() - start_time) * 1000)
-            session.shutdown()
-            cluster.shutdown()
-            
-            return ConnectionTestResult(
-                success=True,
-                message="Cassandra connection successful",
-                latency=latency
-            )
+                
+                session = cluster.connect()
+                
+                # Test connection with a simple query
+                session.execute("SELECT release_version FROM system.local")
+                
+                latency = int((time.time() - start_time) * 1000)
+                session.shutdown()
+                cluster.shutdown()
+                
+                return ConnectionTestResult(
+                    success=True,
+                    message="Cassandra connection successful (no authentication)",
+                    latency=latency
+                )
+            except Exception as e1:
+                # If no credentials provided and connection failed
+                if not (connection_data.get("username") and connection_data.get("password")):
+                    return ConnectionTestResult(
+                        success=False,
+                        message="Authentication required - please provide username and password",
+                        error="Cassandra connection failed without credentials"
+                    )
+                
+                # Try with authentication
+                try:
+                    auth_provider = PlainTextAuthProvider(
+                        username=connection_data["username"],
+                        password=connection_data["password"]
+                    )
+                    
+                    cluster = Cluster(
+                        [connection_data.get("host", "localhost")],
+                        port=connection_data.get("port", 9042),
+                        auth_provider=auth_provider
+                    )
+                    
+                    session = cluster.connect()
+                    
+                    # Test connection with a simple query
+                    session.execute("SELECT release_version FROM system.local")
+                    
+                    latency = int((time.time() - start_time) * 1000)
+                    session.shutdown()
+                    cluster.shutdown()
+                    
+                    return ConnectionTestResult(
+                        success=True,
+                        message="Cassandra connection successful",
+                        latency=latency
+                    )
+                except Exception as e2:
+                    return ConnectionTestResult(
+                        success=False,
+                        message="Cassandra connection failed",
+                        error=str(e2)
+                    )
+                    
         except Exception as e:
             return ConnectionTestResult(
                 success=False,

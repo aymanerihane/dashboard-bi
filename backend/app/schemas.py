@@ -48,6 +48,8 @@ class DatabaseConnectionBase(BaseModel):
     database_name: str
     username: Optional[str] = None
     password: Optional[str] = None
+    connection_string: Optional[str] = None  # For MongoDB Atlas
+    file_path: Optional[str] = None  # For SQLite file path
 
 class DatabaseConnectionCreate(DatabaseConnectionBase):
     pass
@@ -59,6 +61,8 @@ class DatabaseConnectionUpdate(BaseModel):
     database_name: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
+    connection_string: Optional[str] = None  # For MongoDB Atlas
+    file_path: Optional[str] = None  # For SQLite file path
 
 class DatabaseConnection(DatabaseConnectionBase):
     id: int
@@ -147,3 +151,4 @@ class ConnectionTestResult(BaseModel):
     message: str
     latency: Optional[int] = None
     error: Optional[str] = None
+    requires_password: Optional[bool] = False

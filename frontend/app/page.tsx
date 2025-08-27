@@ -9,7 +9,7 @@ import { DashboardVisualization } from "@/components/dashboard-visualization"
 import { DatabaseConnectionTest } from "@/components/database-connection-test"
 import { AuthPage } from "@/components/auth/auth-page"
 import { UserMenu } from "@/components/user-menu"
-import { PasswordConfirmationDialog } from "@/components/password-confirmation-dialog"
+import { PasswordConfirmationDialog } from "@/components/password-dialog"
 import { Database, Code, BarChart3, Loader2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import { useDatabaseConnection } from "@/contexts/database-connection-context"
@@ -65,6 +65,11 @@ export default function DatabaseDashboard() {
 
           if (connectResult.success) {
             setSelectedDatabase(connection)
+            
+            // For SQLite and MongoDB Atlas, automatically go to schema explorer tab
+            if (connection.type === "sqlite" || connection.type === "mongodb-atlas") {
+              setActiveTab("explorer")
+            }
             
             // Save password if requested
             if (shouldSavePassword) {

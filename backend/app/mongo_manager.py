@@ -92,31 +92,77 @@ class MongoDBManager:
         try:
             start_time = time.time()
             
-            client = await self.get_client(connection_data)
+            # First try without authentication
+            connection_data_no_auth = connection_data.copy()
+            connection_data_no_auth["username"] = None
+            connection_data_no_auth["password"] = None
             
-            # Test connection by pinging the server
-            await client.admin.command('ping')
-            
-            latency = int((time.time() - start_time) * 1000)
-            client.close()
-            
-            return ConnectionTestResult(
-                success=True,
-                message="MongoDB connection successful",
-                latency=latency
-            )
-        except ServerSelectionTimeoutError:
-            return ConnectionTestResult(
-                success=False,
-                message="Connection failed",
-                error="Server selection timeout - check host and port"
-            )
-        except ConnectionFailure as e:
-            return ConnectionTestResult(
-                success=False,
-                message="Connection failed",
-                error=f"Connection failure: {str(e)}"
-            )
+            try:
+                # Try connection without auth
+                connection_string_no_auth = self.build_connection_string(connection_data_no_auth)
+                client = AsyncIOMotorClient(
+                    connection_string_no_auth,
+                    serverSelectionTimeoutMS=5000,
+                    connectTimeoutMS=5000,
+                    socketTimeoutMS=5000
+                )
+                
+                # Test connection by pinging the server
+                await client.admin.command('ping')
+                
+                latency = int((time.time() - start_time) * 1000)
+                client.close()
+                
+                return ConnectionTestResult(
+                    success=True,
+                    message="MongoDB connection successful (no authentication)",
+                    latency=latency
+                )
+                
+            except Exception as e1:
+                # If no credentials provided and connection failed
+                if not (connection_data.get("username") and connection_data.get("password")):
+                    return ConnectionTestResult(
+                        success=False,
+                        message="Authentication required - please provide username and password",
+                        error="MongoDB connection failed without credentials"
+                    )
+                
+                # Try with authentication
+                try:
+                    client = await self.get_client(connection_data)
+                    
+                    # Test connection by pinging the server
+                    await client.admin.command('ping')
+                    
+                    latency = int((time.time() - start_time) * 1000)
+                    client.close()
+                    
+                    return ConnectionTestResult(
+                        success=True,
+                        message="MongoDB connection successful",
+                        latency=latency
+                    )
+                    
+                except ServerSelectionTimeoutError:
+                    return ConnectionTestResult(
+                        success=False,
+                        message="Connection failed",
+                        error="Server selection timeout - check host and port"
+                    )
+                except ConnectionFailure as e:
+                    return ConnectionTestResult(
+                        success=False,
+                        message="Connection failed",
+                        error=f"Connection failure: {str(e)}"
+                    )
+                except Exception as e2:
+                    return ConnectionTestResult(
+                        success=False,
+                        message="Connection failed",
+                        error=str(e2)
+                    )
+                    
         except Exception as e:
             return ConnectionTestResult(
                 success=False,

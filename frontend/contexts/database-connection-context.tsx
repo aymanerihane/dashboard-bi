@@ -6,17 +6,19 @@ import type { DatabaseConfig } from "@/lib/database"
 interface PasswordConfirmationState {
   showPasswordDialog: boolean
   selectedDatabase: DatabaseConfig | null
-  onConfirmCallback: ((password: string, savePassword: boolean) => void) | null
+  onConfirmCallback: ((password: string, savePassword?: boolean) => void) | null
+  error?: string
 }
 
 interface DatabaseConnectionContextType {
   passwordState: PasswordConfirmationState
   savedPasswords: Record<string, string> // database id -> password
-  requestConnection: (database: DatabaseConfig, onConfirm: (password: string, savePassword: boolean) => void) => void
+  requestConnection: (database: DatabaseConfig, onConfirm: (password: string, savePassword?: boolean) => void) => void
   closePasswordDialog: () => void
   savePassword: (databaseId: string, password: string) => void
   hasStoredPassword: (databaseId: string) => boolean
   getStoredPassword: (databaseId: string) => string | null
+  setPasswordError: (error: string | undefined) => void
 }
 
 const DatabaseConnectionContext = createContext<DatabaseConnectionContextType | undefined>(undefined)
@@ -30,6 +32,7 @@ export function DatabaseConnectionProvider({ children }: DatabaseConnectionProvi
     showPasswordDialog: false,
     selectedDatabase: null,
     onConfirmCallback: null,
+    error: undefined,
   })
   
   const [savedPasswords, setSavedPasswords] = useState<Record<string, string>>(() => {
@@ -47,8 +50,15 @@ export function DatabaseConnectionProvider({ children }: DatabaseConnectionProvi
 
   const requestConnection = (
     database: DatabaseConfig, 
-    onConfirm: (password: string, savePassword: boolean) => void
+    onConfirm: (password: string, savePassword?: boolean) => void
   ) => {
+    // For SQLite and MongoDB Atlas, bypass password dialog and connect directly
+    if (database.type === "sqlite" || database.type === "mongodb-atlas") {
+      // Connect directly without password for these database types
+      onConfirm("", false)
+      return
+    }
+
     // Check if we have a saved password for this database
     const storedPassword = savedPasswords[database.id]
     if (storedPassword) {
@@ -57,11 +67,14 @@ export function DatabaseConnectionProvider({ children }: DatabaseConnectionProvi
       return
     }
 
-    // Show password dialog
+    // Show password dialog for other database types
     setPasswordState({
       showPasswordDialog: true,
       selectedDatabase: database,
-      onConfirmCallback: onConfirm,
+      onConfirmCallback: (password: string, savePassword?: boolean) => {
+        onConfirm(password, savePassword || false)
+      },
+      error: undefined,
     })
   }
 
@@ -70,7 +83,12 @@ export function DatabaseConnectionProvider({ children }: DatabaseConnectionProvi
       showPasswordDialog: false,
       selectedDatabase: null,
       onConfirmCallback: null,
+      error: undefined,
     })
+  }
+
+  const setPasswordError = (error: string | undefined) => {
+    setPasswordState(prev => ({ ...prev, error }))
   }
 
   const savePassword = (databaseId: string, password: string) => {
@@ -105,6 +123,7 @@ export function DatabaseConnectionProvider({ children }: DatabaseConnectionProvi
         savePassword,
         hasStoredPassword,
         getStoredPassword,
+        setPasswordError,
       }}
     >
       {children}

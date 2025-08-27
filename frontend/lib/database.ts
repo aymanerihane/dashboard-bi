@@ -9,8 +9,10 @@ export interface DatabaseConfig {
   database: string
   username?: string
   password?: string
-  filename?: string // for SQLite
-  connectionString?: string // for MongoDB Atlas
+  filename?: string // for SQLite (legacy)
+  file_path?: string // for SQLite file path (new)
+  connectionString?: string // for MongoDB Atlas (legacy)
+  connection_string?: string // for MongoDB Atlas (new)
   cluster?: string // for MongoDB Atlas
   status?: string
   createdAt?: Date
@@ -77,6 +79,8 @@ export class DatabaseService {
       database: config.database,
       username: config.username || "",
       password: config.password || undefined, // Send password if provided
+      connection_string: config.connection_string, // Send MongoDB Atlas connection string
+      file_path: config.file_path, // Send SQLite file path
     })
   }
 
@@ -89,6 +93,8 @@ export class DatabaseService {
       database: config.database,
       username: config.username || "",
       password: config.password || undefined, // Send password if provided
+      connection_string: config.connection_string, // Send MongoDB Atlas connection string
+      file_path: config.file_path, // Send SQLite file path
     })
   }
 

@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Database, Server, HardDrive, Plus, MoreVertical, Edit, Trash2, Play, Loader2 } from "lucide-react"
 import { ConnectionForm } from "./connection-form"
-import { PasswordPrompt } from "./password-prompt"
+import { PasswordDialog } from "./password-dialog"
 import { DatabaseService, type DatabaseConfig } from "@/lib/database"
 import { useToast } from "@/hooks/use-toast"
 
@@ -93,7 +93,7 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
       setIsLoading(true)
 
       if (editingConnection) {
-        await databaseService.updateDatabase(editingConnection.id, config)
+        await databaseService.updateDatabase(editingConnection.id.toString(), config)
         toast({
           title: "Success",
           description: "Database connection updated successfully",
@@ -148,8 +148,8 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
   }
 
   const handleConnectClick = async (connection: DatabaseConfig) => {
-    // For SQLite, connect directly
-    if (connection.type === "sqlite") {
+    // For SQLite and MongoDB Atlas, connect directly
+    if (connection.type === "sqlite" || connection.type === "mongodb-atlas") {
       onConnect(connection)
       return
     }
@@ -392,12 +392,14 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
         </AlertDialogContent>
       </AlertDialog>
 
-      <PasswordPrompt
-        isOpen={passwordPrompt !== null}
-        onClose={() => setPasswordPrompt(null)}
-        onSubmit={handlePasswordSubmit}
-        connectionName={passwordPrompt?.connection.name || ""}
+      <PasswordDialog
+        open={passwordPrompt !== null}
+        onOpenChange={(open) => !open && setPasswordPrompt(null)}
+        onCancel={() => setPasswordPrompt(null)}
+        onConfirm={handlePasswordSubmit}
+        databaseName={passwordPrompt?.connection.name || ""}
         error={passwordPrompt?.error}
+        showSavePassword={false}
       />
     </div>
   )

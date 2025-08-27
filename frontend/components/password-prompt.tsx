@@ -21,8 +21,6 @@ export function PasswordPrompt({ isOpen, onClose, onSubmit, connectionName, erro
   const [isLoading, setIsLoading] = useState(false)
 
   const handleSubmit = async () => {
-    if (!password.trim()) return
-    
     setIsLoading(true)
     try {
       await onSubmit(password)
@@ -38,7 +36,7 @@ export function PasswordPrompt({ isOpen, onClose, onSubmit, connectionName, erro
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && password.trim()) {
+    if (e.key === "Enter") {
       handleSubmit()
     }
   }
@@ -85,9 +83,9 @@ export function PasswordPrompt({ isOpen, onClose, onSubmit, connectionName, erro
           </Button>
           <Button 
             onClick={handleSubmit} 
-            disabled={!password.trim() || isLoading}
+            disabled={false}
           >
-            {isLoading ? "Connecting..." : "Connect"}
+            {isLoading ? "Connecting..." : "ss"}
           </Button>
         </DialogFooter>
       </DialogContent>

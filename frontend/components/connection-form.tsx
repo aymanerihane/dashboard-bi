@@ -36,11 +36,25 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
   })
 
   const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string; latency?: number } | null>(null)
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; latency?: number; error?: string } | null>(null)
   const [tempPassword, setTempPassword] = useState("") // Temporary password for testing only
   const [connectionTested, setConnectionTested] = useState(false) // Track if connection was successfully tested
   const [autoTestEnabled, setAutoTestEnabled] = useState(false)
   const [fileContent, setFileContent] = useState<File | null>(null)
+  const [showPasswordField, setShowPasswordField] = useState(false) // Show password field only after auth failure
+  const [authenticationRequired, setAuthenticationRequired] = useState(false) // Track if auth is required
+
+  // Extract password from MongoDB Atlas connection string
+  const extractPasswordFromConnectionString = (connectionString: string): string | undefined => {
+    try {
+      // Pattern to match mongodb+srv://<username>:<password>@...
+      const match = connectionString.match(/mongodb\+srv:\/\/[^:]+:([^@]+)@/)
+      return match ? decodeURIComponent(match[1]) : undefined
+    } catch (error) {
+      console.error('Error extracting password from connection string:', error)
+      return undefined
+    }
+  }
 
   // Get default port for database type
   function getDefaultPort(type: DatabaseType): number | undefined {
@@ -66,6 +80,9 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
   useEffect(() => {
     setConnectionTested(false)
     setTestResult(null)
+    setShowPasswordField(false)
+    setAuthenticationRequired(false)
+    setTempPassword("")
   }, [config.host, config.port, config.database, config.username, config.type, config.connectionString])
 
   // Auto-test connection when all required fields are filled
@@ -114,7 +131,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
     setTestResult(null)
 
     try {
-      let result: { success: boolean; message: string; latency?: number }
+      let result: { success: boolean; message: string; latency?: number; error?: string }
 
       if (config.type === "sqlite") {
         // SQLite validation - check if file is uploaded or path provided
@@ -133,7 +150,8 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
         } else {
           result = {
             success: false,
-            message: "Please upload a SQLite file or provide both database name and file path."
+            message: "Please upload a SQLite file or provide both database name and file path.",
+            error: "Missing SQLite file or file path"
           }
         }
       } else if (config.type === "mongodb-atlas") {
@@ -141,14 +159,19 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
         if (!config.connectionString) {
           result = {
             success: false,
-            message: "Please provide a MongoDB Atlas connection string."
+            message: "Please provide a MongoDB Atlas connection string.",
+            error: "Missing MongoDB Atlas connection string"
           }
         } else {
+          // Extract password from connection string for Atlas
+          const extractedPassword = extractPasswordFromConnectionString(config.connectionString);
+          
           // Test Atlas connection
           result = await apiClient.testConnectionStandalone({
             type: "mongodb-atlas",
             connectionString: config.connectionString,
-            database: config.database || "test"
+            database: config.database || "test",
+            password: extractedPassword
           })
         }
       } else if (config.type === "redis") {
@@ -156,7 +179,8 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
         if (!config.host || !config.port) {
           result = {
             success: false,
-            message: "Please provide host and port for Redis connection."
+            message: "Please provide host and port for Redis connection.",
+            error: "Missing host or port for Redis"
           }
         } else {
           result = await apiClient.testConnectionStandalone({
@@ -169,18 +193,20 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
         }
       } else {
         // Standard databases (PostgreSQL, MySQL, MongoDB, Cassandra)
-        const hasRequiredFields = !!(config.host && config.database && config.username && tempPassword)
+        const hasRequiredFields = !!(config.host && config.database && config.username)
         const isValidPort = config.port && config.port > 0 && config.port < 65536
 
         if (!hasRequiredFields) {
           result = {
             success: false,
-            message: "Please fill in all required fields (host, database, username, password)."
+            message: "Please fill in all required fields (host, database, username).",
+            error: "Missing required connection fields"
           }
         } else if (!isValidPort) {
           result = {
             success: false,
-            message: "Please provide a valid port number (1-65535)."
+            message: "Please provide a valid port number (1-65535).",
+            error: "Invalid port number"
           }
         } else {
           // Test connection via API
@@ -199,11 +225,39 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
       
       if (result.success) {
         setConnectionTested(true)
+        setAuthenticationRequired(false)
+        setShowPasswordField(false)
+      } else {
+        // Check if the error indicates authentication is required
+        const authErrors = [
+          'authentication failed',
+          'access denied',
+          'login failed',
+          'invalid credentials',
+          'password authentication failed',
+          'authentication required',
+          'unauthorized'
+        ]
+        
+        const isAuthError = authErrors.some(error => 
+          (result.error && result.error.toLowerCase().includes(error)) || 
+          (result.message && result.message.toLowerCase().includes(error))
+        )
+        
+        if (isAuthError && !tempPassword && !showPasswordField) {
+          setAuthenticationRequired(true)
+          setShowPasswordField(true)
+          setTestResult({
+            success: false,
+            message: "Authentication required - please enter your password",
+          })
+        }
       }
     } catch (error) {
       setTestResult({
         success: false,
-        message: error instanceof Error ? error.message : "Connection test failed"
+        message: error instanceof Error ? error.message : "Connection test failed",
+        error: error instanceof Error ? error.message : "Unknown error"
       })
     }
 
@@ -213,17 +267,29 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
   const handleSave = () => {
     if (!isValidForSave) return
 
+    let passwordToSave = tempPassword || config.password;
+    
+    // For MongoDB Atlas, extract password from connection string
+    if (config.type === "mongodb-atlas" && config.connectionString) {
+      const extractedPassword = extractPasswordFromConnectionString(config.connectionString);
+      if (extractedPassword) {
+        passwordToSave = extractedPassword;
+      }
+    }
+
     const newConfig: DatabaseConfig = {
-      id: initialConfig?.id || `db-${Date.now()}`,
+      id: initialConfig?.id || Date.now(),
       name: config.name!,
-      type: config.type as "postgresql" | "mysql" | "sqlite",
+      type: config.type as "postgresql" | "mysql" | "sqlite" | "mongodb-atlas" | "redis" | "cassandra",
       database: config.database!,
       host: config.type !== "sqlite" ? config.host : undefined,
       port: config.type !== "sqlite" ? config.port : undefined,
       username: config.type !== "sqlite" && config.type !== "mongodb-atlas" && config.type !== "redis" ? config.username : undefined,
-      password: tempPassword || config.password, // Include the password for saving
-      filename: config.type === "sqlite" ? config.filename : undefined,
-      connectionString: config.type === "mongodb-atlas" ? config.connectionString : undefined,
+      password: passwordToSave, // Include the password (extracted for Atlas)
+      filename: config.type === "sqlite" ? config.filename : undefined, // Legacy field
+      file_path: config.type === "sqlite" ? (config.filename || config.database) : undefined, // New field for backend
+      connectionString: config.type === "mongodb-atlas" ? config.connectionString : undefined, // Legacy field
+      connection_string: config.type === "mongodb-atlas" ? config.connectionString : undefined, // New field for backend
       cluster: config.cluster,
     }
 
@@ -232,7 +298,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
 
   // Enhanced validation logic
   const getValidationStatus = () => {
-    if (!config.name) return { valid: false, message: "Connection name is required" }
+    if (!testOnly && !config.name) return { valid: false, message: "Connection name is required" }
     
     switch (config.type) {
       case "sqlite":
@@ -264,7 +330,8 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
     config.type === "sqlite" || 
     config.type === "mongodb-atlas" || 
     config.type === "redis" || 
-    tempPassword.length > 0
+    tempPassword.length > 0 ||
+    (config.type as string !== "sqlite" && config.type as string !== "mongodb-atlas" && config.type as string !== "redis")
   )
   
   const isValidForSave = !testOnly && validationStatus.valid && (testOnly || connectionTested)
@@ -282,16 +349,18 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">Connection Name</Label>
-            <Input
-              id="name"
-              placeholder="My Database"
-              value={config.name}
-              onChange={(e) => setConfig((prev) => ({ ...prev, name: e.target.value }))}
-            />
-          </div>
-          <div className="space-y-2">
+          {!testOnly && (
+            <div className="space-y-2">
+              <Label htmlFor="name">Connection Name</Label>
+              <Input
+                id="name"
+                placeholder="My Database"
+                value={config.name}
+                onChange={(e) => setConfig((prev) => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+          )}
+          <div className={`space-y-2 ${testOnly ? 'col-span-2' : ''}`}>
             <Label htmlFor="type">Database Type</Label>
             <Select value={config.type} onValueChange={handleTypeChange}>
               <SelectTrigger>
@@ -458,21 +527,26 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
                 />
               </div>
             )}
-            <div className="space-y-2">
-              <Label htmlFor="temp-password">
-                Password {config.type === "redis" ? "(Optional)" : ""}
-              </Label>
-              <Input
-                id="temp-password"
-                type="password"
-                placeholder="Enter password to test connection"
-                value={tempPassword}
-                onChange={(e) => setTempPassword(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Password will be encrypted and saved with the connection
-              </p>
-            </div>
+            {(showPasswordField || authenticationRequired || testOnly) && (
+              <div className="space-y-2">
+                <Label htmlFor="temp-password">
+                  Password {config.type === "redis" ? "(Optional)" : authenticationRequired ? "(Required)" : "(Optional)"}
+                </Label>
+                <Input
+                  id="temp-password"
+                  type="password"
+                  placeholder={authenticationRequired ? "Password required for authentication" : "Enter password to test connection"}
+                  value={tempPassword}
+                  onChange={(e) => setTempPassword(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {authenticationRequired 
+                    ? "Authentication failed. Please provide password to continue."
+                    : "Password will be encrypted and saved with the connection"
+                  }
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -481,6 +555,20 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
           <Alert>
             <XCircle className="h-4 w-4" />
             <AlertDescription>{validationStatus.message}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Authentication required alert */}
+        {authenticationRequired && (
+          <Alert className="border-amber-200 bg-amber-50">
+            <div className="flex items-center gap-2">
+              <XCircle className="h-4 w-4 text-amber-600" />
+              <div className="flex-1">
+                <AlertDescription className="text-amber-800">
+                  Connection failed due to authentication. Please provide your password below and try again.
+                </AlertDescription>
+              </div>
+            </div>
           </Alert>
         )}
 

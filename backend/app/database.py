@@ -31,12 +31,14 @@ class DatabaseConnection(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, nullable=False)
     name = Column(String(255), nullable=False)
-    db_type = Column(String(50), nullable=False)  # postgresql, mysql, sqlite
+    db_type = Column(String(50), nullable=False)  # postgresql, mysql, sqlite, mongodb-atlas
     host = Column(String(255))
     port = Column(Integer)
     database_name = Column(String(255), nullable=False)
     username = Column(String(255))
     password = Column(Text)  # Encrypted
+    connection_string = Column(Text, nullable=True)  # For MongoDB Atlas
+    file_path = Column(String(500), nullable=True)  # For SQLite file path
     status = Column(String(50), default="disconnected")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

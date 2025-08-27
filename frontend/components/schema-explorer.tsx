@@ -42,6 +42,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
   const [activeTab, setActiveTab] = useState("structure")
   const [tables, setTables] = useState<TableInfo[]>([])
   const [tableData, setTableData] = useState<any[]>([])
+  const [apiColumns, setApiColumns] = useState<string[]>([]) // Store the actual column order from API
   const [loading, setLoading] = useState(false)
   const [loadingData, setLoadingData] = useState(false)
   const { toast } = useToast()
@@ -57,6 +58,10 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
   useEffect(() => {
     if (selectedTable && activeTab === "data") {
       loadTableData()
+    } else {
+      // Clear data when switching away from data tab or changing tables
+      setTableData([])
+      setApiColumns([])
     }
   }, [selectedTable, activeTab])
 
@@ -104,14 +109,28 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
       const data = await apiClient.getTableData(database.id, selectedTable.name, 10, 0)
       console.log("Received table data:", data)
       
-      if (data && data.rows) {
+      // Handle the actual API response format: { columns: [...], rows: [...], total_count: number, ... }
+      if (data && data.rows && Array.isArray(data.rows)) {
         setTableData(data.rows)
+        setApiColumns(data.columns || []) // Store the API column order
         console.log("Table data set to:", data.rows.length, "rows")
+        console.log("Sample row data:", data.rows[0])
+        console.log("API Columns:", data.columns)
+        console.log("Selected table columns:", selectedTable.columns.map(c => c.name))
+        
+        // Verify column mapping
+        if (data.columns && data.rows[0]) {
+          console.log("Column mapping verification:")
+          data.columns.forEach((col, index) => {
+            console.log(`  ${col} (index ${index}): ${data.rows[0][index]}`)
+          })
+        }
       } else if (data && Array.isArray(data)) {
         setTableData(data)
         console.log("Table data set to:", data.length, "rows (direct array)")
       } else {
         console.warn("Unexpected data format:", data)
+        console.log("Data keys:", data ? Object.keys(data) : "data is null/undefined")
         setTableData([])
         toast({
           title: "Warning",
@@ -327,19 +346,33 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            {selectedTable.columns.map((column) => (
-                              <TableHead key={column.name}>{column.name}</TableHead>
-                            ))}
+                            {apiColumns.length > 0 ? (
+                              apiColumns.map((columnName) => (
+                                <TableHead key={columnName}>{columnName}</TableHead>
+                              ))
+                            ) : (
+                              selectedTable.columns.map((column) => (
+                                <TableHead key={column.name}>{column.name}</TableHead>
+                              ))
+                            )}
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {tableData.map((row, index) => (
                             <TableRow key={index}>
-                              {selectedTable.columns.map((column) => (
-                                <TableCell key={column.name}>
-                                  {formatValue(row[column.name])}
-                                </TableCell>
-                              ))}
+                              {apiColumns.length > 0 ? (
+                                apiColumns.map((columnName, columnIndex) => (
+                                  <TableCell key={columnName}>
+                                    {formatValue(Array.isArray(row) ? row[columnIndex] : row[columnName])}
+                                  </TableCell>
+                                ))
+                              ) : (
+                                selectedTable.columns.map((column, columnIndex) => (
+                                  <TableCell key={column.name}>
+                                    {formatValue(Array.isArray(row) ? row[columnIndex] : row[column.name])}
+                                  </TableCell>
+                                ))
+                              )}
                             </TableRow>
                           ))}
                         </TableBody>

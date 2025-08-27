@@ -6,33 +6,42 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Eye, EyeOff, Lock } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Eye, EyeOff, Lock, AlertCircle } from "lucide-react"
 
-interface PasswordConfirmationDialogProps {
+interface PasswordDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   databaseName: string
-  onConfirm: (password: string, savePassword: boolean) => void
+  onConfirm: (password: string, savePassword?: boolean) => void
   onCancel: () => void
   loading?: boolean
+  error?: string
+  showSavePassword?: boolean
 }
 
-export function PasswordConfirmationDialog({
+export function PasswordDialog({
   open,
   onOpenChange,
   databaseName,
   onConfirm,
   onCancel,
-  loading = false
-}: PasswordConfirmationDialogProps) {
+  loading = false,
+  error,
+  showSavePassword = true
+}: PasswordDialogProps) {
   const [password, setPassword] = useState("")
   const [savePassword, setSavePassword] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (password.trim()) {
-      onConfirm(password, savePassword)
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    onConfirm(password, showSavePassword ? savePassword : undefined)
+  }
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleSubmit()
     }
   }
 
@@ -64,6 +73,13 @@ export function PasswordConfirmationDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="password">Database Password</Label>
             <div className="relative">
@@ -72,6 +88,7 @@ export function PasswordConfirmationDialog({
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onKeyPress={handleKeyPress}
                 placeholder="Enter your database password"
                 className="pr-10"
                 disabled={loading}
@@ -94,8 +111,6 @@ export function PasswordConfirmationDialog({
             </div>
           </div>
 
-          
-
           <div className="flex justify-end gap-2">
             <Button
               type="button"
@@ -105,7 +120,8 @@ export function PasswordConfirmationDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!password.trim() || loading}>
+            {/* Connect button is always enabled to allow form submission */}
+            <Button type="submit" disabled={false} >
               {loading ? "Connecting..." : "Connect"}
             </Button>
           </div>
@@ -114,3 +130,9 @@ export function PasswordConfirmationDialog({
     </Dialog>
   )
 }
+
+// Export with old name for backward compatibility
+export const PasswordConfirmationDialog = PasswordDialog
+
+// Export with new name for new usage
+export default PasswordDialog

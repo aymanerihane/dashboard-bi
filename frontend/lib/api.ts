@@ -28,9 +28,9 @@ class ApiClient {
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = `${this.baseURL}${endpoint}`
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...options.headers,
+      ...((options.headers as Record<string, string>) || {}),
     }
 
     if (this.token) {
@@ -108,6 +108,8 @@ class ApiClient {
     database: string
     username?: string
     password?: string
+    connection_string?: string
+    file_path?: string
   }) {
     return this.request<{
       id: number
@@ -131,6 +133,8 @@ class ApiClient {
         database_name: config.database,
         username: config.username,
         password: config.password,
+        connection_string: config.connection_string,
+        file_path: config.file_path,
       }),
     })
   }
@@ -145,6 +149,8 @@ class ApiClient {
       database?: string
       username?: string
       password?: string
+      connection_string?: string
+      file_path?: string
     },
   ) {
     return this.request<{
@@ -169,6 +175,8 @@ class ApiClient {
         database_name: config.database,
         username: config.username,
         password: config.password,
+        connection_string: config.connection_string,
+        file_path: config.file_path,
       }),
     })
   }
@@ -246,10 +254,11 @@ class ApiClient {
 
   async getTableData(connectionId: number, tableName: string, limit: number = 10, offset: number = 0) {
     return this.request<{
-      success: boolean
-      data: any[]
-      columns: Array<{ name: string; type: string }>
-      total: number
+      columns: string[]
+      rows: any[]
+      total_count: number
+      limit: number
+      offset: number
     }>(`/api/databases/${connectionId}/tables/${tableName}/data?limit=${limit}&offset=${offset}`)
   }
 

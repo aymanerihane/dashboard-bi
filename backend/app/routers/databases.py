@@ -38,7 +38,8 @@ async def test_connection_standalone(
         connection_data = {
             "db_type": "mongodb-atlas",
             "connection_string": connection_request.connectionString,
-            "database_name": connection_request.database or "test"
+            "database_name": connection_request.database or "test",
+            "password": connection_request.password  # Include extracted password
         }
     elif connection_request.type == "sqlite":
         if not connection_request.file_path and not connection_request.database:
@@ -58,8 +59,15 @@ async def test_connection_standalone(
         }
     else:
         # Standard databases (PostgreSQL, MySQL, MongoDB, Cassandra)
-        if not all([connection_request.host, connection_request.database, connection_request.username]):
-            raise HTTPException(status_code=400, detail="Host, database, and username are required")
+        required_fields = [connection_request.host, connection_request.database]
+        if connection_request.type not in ["redis"]:
+            required_fields.append(connection_request.username)
+            
+        if not all(required_fields):
+            if connection_request.type in ["redis"]:
+                raise HTTPException(status_code=400, detail="Host and database are required for Redis")
+            else:
+                raise HTTPException(status_code=400, detail="Host, database, and username are required")
             
         connection_data = {
             "db_type": connection_request.type,
@@ -100,6 +108,8 @@ async def create_connection(
         database_name=connection.database_name,
         username=connection.username,
         password=encrypted_password,
+        connection_string=connection.connection_string,  # Store MongoDB Atlas connection string
+        file_path=connection.file_path,  # Store SQLite file path
         status="disconnected"
     )
     
@@ -146,6 +156,7 @@ async def update_connection(
     if "password" in update_data and update_data["password"]:
         update_data["password"] = db_manager.encrypt_password(update_data["password"])
     
+    # Update connection_string and file_path fields
     for field, value in update_data.items():
         setattr(connection, field, value)
     
@@ -187,15 +198,40 @@ async def test_connection(
     if not connection:
         raise HTTPException(status_code=404, detail="Connection not found")
     
-    # Prepare connection data
-    connection_data = {
-        "db_type": connection.db_type,
-        "host": connection.host,
-        "port": connection.port,
-        "database_name": connection.database_name,
-        "username": connection.username,
-        "password": db_manager.decrypt_password(connection.password) if connection.password else None
-    }
+    # Prepare connection data based on database type
+    if connection.db_type == "mongodb-atlas":
+        if not connection.connection_string:
+            return ConnectionTestResult(
+                success=False,
+                message="Connection failed",
+                error="MongoDB Atlas connection string not found"
+            )
+        connection_data = {
+            "db_type": connection.db_type,
+            "connection_string": connection.connection_string,
+            "database_name": connection.database_name
+        }
+    elif connection.db_type == "sqlite":
+        if not connection.file_path:
+            return ConnectionTestResult(
+                success=False,
+                message="Connection failed",
+                error="SQLite file path not found"
+            )
+        connection_data = {
+            "db_type": connection.db_type,
+            "database_name": connection.file_path
+        }
+    else:
+        # Standard databases (PostgreSQL, MySQL, etc.)
+        connection_data = {
+            "db_type": connection.db_type,
+            "host": connection.host,
+            "port": connection.port,
+            "database_name": connection.database_name,
+            "username": connection.username,
+            "password": db_manager.decrypt_password(connection.password) if connection.password else None
+        }
     
     result = await db_manager.test_connection(connection_data)
     
@@ -221,32 +257,57 @@ async def connect_with_password(
     if not connection:
         raise HTTPException(status_code=404, detail="Connection not found")
     
-    # Verify the provided password matches the stored encrypted password
-    if connection.password:
-        stored_password = db_manager.decrypt_password(connection.password)
-        if request.password != stored_password:
+    # For MongoDB Atlas and SQLite, connect directly without password verification
+    if connection.db_type == "mongodb-atlas":
+        if not connection.connection_string:
+            return ConnectionTestResult(
+                success=False,
+                message="Connection failed",
+                error="MongoDB Atlas connection string not found"
+            )
+        connection_data = {
+            "db_type": connection.db_type,
+            "connection_string": connection.connection_string,
+            "database_name": connection.database_name
+        }
+    elif connection.db_type == "sqlite":
+        if not connection.file_path:
+            return ConnectionTestResult(
+                success=False,
+                message="Connection failed",
+                error="SQLite file path not found"
+            )
+        connection_data = {
+            "db_type": connection.db_type,
+            "database_name": connection.file_path
+        }
+    else:
+        # For other database types, verify password
+        if connection.password:
+            stored_password = db_manager.decrypt_password(connection.password)
+            if request.password != stored_password:
+                return ConnectionTestResult(
+                    success=False,
+                    message="Authentication failed",
+                    error="Invalid password"
+                )
+        else:
+            # If no password is stored, reject the connection
             return ConnectionTestResult(
                 success=False,
                 message="Authentication failed",
-                error="Invalid password"
+                error="No password stored for this connection"
             )
-    else:
-        # If no password is stored, reject the connection
-        return ConnectionTestResult(
-            success=False,
-            message="Authentication failed",
-            error="No password stored for this connection"
-        )
-    
-    # Password verified, now test the actual database connection
-    connection_data = {
-        "db_type": connection.db_type,
-        "host": connection.host,
-        "port": connection.port,
-        "database_name": connection.database_name,
-        "username": connection.username,
-        "password": request.password
-    }
+        
+        # Password verified, prepare connection data
+        connection_data = {
+            "db_type": connection.db_type,
+            "host": connection.host,
+            "port": connection.port,
+            "database_name": connection.database_name,
+            "username": connection.username,
+            "password": request.password
+        }
     
     result = await db_manager.test_connection(connection_data)
     
@@ -270,14 +331,32 @@ async def get_tables(
     if not connection:
         raise HTTPException(status_code=404, detail="Connection not found")
     
-    connection_data = {
-        "db_type": connection.db_type,
-        "host": connection.host,
-        "port": connection.port,
-        "database_name": connection.database_name,
-        "username": connection.username,
-        "password": db_manager.decrypt_password(connection.password) if connection.password else None
-    }
+    # Prepare connection data based on database type
+    if connection.db_type == "mongodb-atlas":
+        if not connection.connection_string:
+            raise HTTPException(status_code=400, detail="MongoDB Atlas connection string not found")
+        connection_data = {
+            "db_type": connection.db_type,
+            "connection_string": connection.connection_string,
+            "database_name": connection.database_name
+        }
+    elif connection.db_type == "sqlite":
+        if not connection.file_path:
+            raise HTTPException(status_code=400, detail="SQLite file path not found")
+        connection_data = {
+            "db_type": connection.db_type,
+            "database_name": connection.file_path
+        }
+    else:
+        # Standard databases (PostgreSQL, MySQL, etc.)
+        connection_data = {
+            "db_type": connection.db_type,
+            "host": connection.host,
+            "port": connection.port,
+            "database_name": connection.database_name,
+            "username": connection.username,
+            "password": db_manager.decrypt_password(connection.password) if connection.password else None
+        }
     
     return await db_manager.get_tables(connection_data)
 
@@ -298,14 +377,32 @@ async def get_table_data(
     if not connection:
         raise HTTPException(status_code=404, detail="Connection not found")
     
-    connection_data = {
-        "db_type": connection.db_type,
-        "host": connection.host,
-        "port": connection.port,
-        "database_name": connection.database_name,
-        "username": connection.username,
-        "password": db_manager.decrypt_password(connection.password) if connection.password else None
-    }
+    # Prepare connection data based on database type
+    if connection.db_type == "mongodb-atlas":
+        if not connection.connection_string:
+            raise HTTPException(status_code=400, detail="MongoDB Atlas connection string not found")
+        connection_data = {
+            "db_type": connection.db_type,
+            "connection_string": connection.connection_string,
+            "database_name": connection.database_name
+        }
+    elif connection.db_type == "sqlite":
+        if not connection.file_path:
+            raise HTTPException(status_code=400, detail="SQLite file path not found")
+        connection_data = {
+            "db_type": connection.db_type,
+            "database_name": connection.file_path
+        }
+    else:
+        # Standard databases (PostgreSQL, MySQL, etc.)
+        connection_data = {
+            "db_type": connection.db_type,
+            "host": connection.host,
+            "port": connection.port,
+            "database_name": connection.database_name,
+            "username": connection.username,
+            "password": db_manager.decrypt_password(connection.password) if connection.password else None
+        }
     
     try:
         return await db_manager.get_table_data(connection_data, table_name, limit, offset)
