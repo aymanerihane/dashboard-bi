@@ -323,10 +323,6 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
                       ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-                    <Save className="h-4 w-4" />
-                    Save
-                  </Button>
                 </div>
               </div>
             </CardHeader>

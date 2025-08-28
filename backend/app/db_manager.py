@@ -11,6 +11,7 @@ from app.mongo_manager import mongo_manager
 from cryptography.fernet import Fernet
 from fastapi import HTTPException
 import os
+import re
 
 class DatabaseManager:
     def __init__(self):
@@ -305,18 +306,58 @@ class DatabaseManager:
         # Route MongoDB connections to mongo_manager
         if connection_data.get("db_type") in ["mongodb", "mongodb-atlas"]:
             try:
-                # Parse query string as JSON for MongoDB
+                # Try to parse as a mongo shell command string first
+                if isinstance(query, str):
+                    # Regex to parse db.collection.operation(args)
+                    match = re.match(r"^\s*db\.(?P<collection>\w+)\.(?P<operation>\w+)\((?P<args>.*)\)\s*$", query, re.DOTALL)
+                    if match:
+                        collection = match.group('collection')
+                        operation = match.group('operation')
+                        args_str = match.group('args')
+
+                        # The arguments for aggregate are a list, for find it's a dict
+                        if operation == "aggregate":
+                            # The argument is a pipeline (list of dicts)
+                            # Use demjson3 to handle the JS-like syntax
+                            import demjson3
+                            pipeline = demjson3.decode(f"[{args_str}]")
+                            query_dict = {
+                                "collection": collection,
+                                "operation": "aggregate",
+                                "args": [pipeline]
+                            }
+                        elif operation == "find":
+                            # Arguments are (filter, projection)
+                            # This is more complex to parse robustly with regex/ast from a JS-like string
+                            # A simplified approach for now:
+                            from .utils import extract_json_objects
+                            json_objects = extract_json_objects(args_str)
+                            
+                            filter_arg = json_objects[0] if len(json_objects) > 0 else {}
+                            projection_arg = json_objects[1] if len(json_objects) > 1 else None
+
+                            query_dict = {
+                                "collection": collection,
+                                "operation": "find",
+                                "args": [filter_arg, projection_arg]
+                            }
+                        else:
+                            raise ValueError(f"Unsupported MongoDB operation: {operation}")
+                            
+                        return await mongo_manager.execute_query(connection_data, query_dict, limit)
+
+                # Fallback to assuming the query is already a JSON string or dict
                 import json
                 query_dict = json.loads(query) if isinstance(query, str) else query
                 return await mongo_manager.execute_query(connection_data, query_dict, limit)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, ValueError, SyntaxError) as e:
                 return {
                     "success": False,
                     "data": [],
                     "columns": [],
                     "row_count": 0,
                     "execution_time": 0,
-                    "error": "Invalid JSON query format for MongoDB"
+                    "error": f"Invalid query format for MongoDB: {e}"
                 }
         
         try:

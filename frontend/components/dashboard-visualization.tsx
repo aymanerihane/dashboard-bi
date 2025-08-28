@@ -27,7 +27,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts"
-import { BarChart3, LineChartIcon, PieChartIcon, TrendingUp, Plus, Settings, Save, Trash2, Grid3X3, Edit, Move, Maximize, Minimize, Palette } from "lucide-react"
+import { BarChart3, LineChartIcon, PieChartIcon, TrendingUp, Plus, Settings, Save, Trash2, Grid3X3, Edit, Move, Maximize, Minimize, Palette, Loader2 } from "lucide-react"
 import type { DatabaseConfig, TableInfo, ColumnInfo } from "@/lib/database"
 import { apiClient } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
@@ -47,6 +47,7 @@ interface ChartConfig {
   title: string
   type: "bar" | "line" | "pie" | "area" | "scatter" | "histogram" | "heatmap" | "donut"
   query: string
+  database_id?: number  // Add database_id to track which database the chart uses
   xAxis?: string
   yAxis?: string
   data: any[]
@@ -119,6 +120,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
   const [dragMode, setDragMode] = useState(false)
   const [selectedChart, setSelectedChart] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(false);
   const [newChart, setNewChart] = useState<Partial<ChartConfig>>({
     title: "",
     type: "bar",
@@ -193,11 +195,19 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           charts: d.charts.map(c => ({ id: c.id, title: c.title, x: c.x, y: c.y, w: c.w, h: c.h }))
         })))
         
-        setDashboards(frontendDashboards)
+        const dashboardsWithData = await Promise.all(frontendDashboards.map(async (dashboard) => {
+          const chartsWithData = await Promise.all(dashboard.charts.map(async (chart) => {
+            const data = await fetchChartData(chart);
+            return { ...chart, data };
+          }));
+          return { ...dashboard, charts: chartsWithData };
+        }));
+
+        setDashboards(dashboardsWithData);
         
         // Select first dashboard if available
-        if (frontendDashboards.length > 0) {
-          setSelectedDashboard(frontendDashboards[0])
+        if (dashboardsWithData.length > 0) {
+          setSelectedDashboard(dashboardsWithData[0]);
         }
       } catch (error) {
         console.error('Failed to load dashboards:', error)
@@ -208,6 +218,39 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
 
     loadDashboards()
   }, []) // Remove database dependency to load dashboards immediately
+
+  const fetchChartData = async (chartConfig: ChartConfig): Promise<any[]> => {
+    if (!chartConfig.query || !chartConfig.database_id) {
+      console.log("Skipping data fetch: no query or database_id for chart", chartConfig.id);
+      return chartConfig.data || [];
+    }
+    console.log(`Fetching data for chart ${chartConfig.id} with query: ${chartConfig.query}`);
+    
+    setIsLoading(true);
+    try {
+      const response = await apiClient.executeQuery(
+        chartConfig.database_id,
+        chartConfig.query
+      );
+      
+      if (response.error) {
+        throw new Error(response.error);
+      }
+      
+      console.log(`Data received for chart ${chartConfig.id}:`, response.data);
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching chart data:", error);
+      toast({
+        title: "Error Fetching Chart Data",
+        description: error instanceof Error ? error.message : "An unknown error occurred.",
+        variant: "destructive",
+      });
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Load available databases on component mount
   useEffect(() => {
@@ -265,7 +308,24 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
   const loadDatabases = async () => {
     try {
       const databases = await apiClient.getDatabases()
-      setAvailableDatabases(databases)
+      // Convert API response to DatabaseConfig format
+      const convertedDatabases = databases.map((db: any) => ({
+        id: db.id,
+        name: db.name,
+        type: db.db_type,
+        host: db.host,
+        port: db.port,
+        database: db.database_name,
+        username: db.username,
+        connection_string: db.connection_string,
+        status: db.status
+      }))
+      setAvailableDatabases(convertedDatabases)
+      console.log("Loaded databases:", convertedDatabases.map(db => ({ 
+        id: db.id, 
+        name: db.name, 
+        type: db.type 
+      })))
     } catch (error) {
       console.error("Failed to load databases:", error)
       toast({
@@ -281,8 +341,11 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     
     try {
       setLoadingTables(true)
-      const tables = await apiClient.getTables(selectedChartDatabase)
-      setAvailableTables(tables)
+      const tables = await apiClient.getTables(parseInt(selectedChartDatabase))
+      setAvailableTables(tables.map(table => ({
+        ...table,
+        rowCount: table.row_count // Map row_count to rowCount
+      })))
     } catch (error) {
       console.error("Failed to load tables:", error)
       toast({
@@ -296,8 +359,50 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
   }
 
   const generateQuery = () => {
-    if (!selectedTable || !selectedXColumn || !selectedYColumn) return ""
-    return `SELECT ${selectedXColumn}, ${selectedYColumn} FROM ${selectedTable} LIMIT 100`
+    if (!selectedTable || !selectedXColumn) return ""
+    
+    // Find the selected database to determine its type
+    const selectedDb = availableDatabases.find(db => db.id.toString() === selectedChartDatabase)
+    const isMongoDb = selectedDb?.type === "mongodb" || selectedDb?.type === "mongodb-atlas"
+    console.log("type of db : ", selectedDb?.type)
+
+    // Check if the current chart type needs Y axis
+    const chartConfig = chartTypes[newChart.type as keyof typeof chartTypes]
+    const needsYAxis = !chartConfig?.noYAxis
+    
+    // Return empty if Y axis is required but not selected
+    if (needsYAxis && !selectedYColumn) return ""
+    
+    if (isMongoDb) {
+      // Generate MongoDB query based on chart type
+      if (newChart.type === "pie" || newChart.type === "donut") {
+        // MongoDB aggregation for pie/donut charts
+        return `db.${selectedTable}.aggregate([
+  { $group: { _id: "$${selectedXColumn}", value: { $sum: 1 } } },
+  { $project: { name: "$_id", value: 1, _id: 0 } },
+  { $sort: { value: -1 } },
+  { $limit: 10 }
+])`
+      } else {
+        // MongoDB query for other chart types
+        if (needsYAxis) {
+          return `db.${selectedTable}.find({}, {${selectedXColumn}: 1, ${selectedYColumn}: 1}).limit(100)`
+        } else {
+          return `db.${selectedTable}.find({}, {${selectedXColumn}: 1}).limit(100)`
+        }
+      }
+    } else {
+      // Generate SQL query based on chart type
+      if (newChart.type === "pie" || newChart.type === "donut") {
+        // SQL query for pie/donut charts
+        return `SELECT ${selectedXColumn} as name, COUNT(*) as value FROM ${selectedTable} GROUP BY ${selectedXColumn} ORDER BY value DESC LIMIT 10`
+      } else {
+        // SQL query for other chart types
+        return needsYAxis 
+          ? `SELECT ${selectedXColumn}, ${selectedYColumn} FROM ${selectedTable} LIMIT 100`
+          : `SELECT ${selectedXColumn} FROM ${selectedTable} LIMIT 100`
+      }
+    }
   }
 
   // Chart type configuration
@@ -368,8 +473,8 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
   }
 
   // Get chart type description
-  const getChartTypeDescription = (chartType: keyof typeof chartTypes) => {
-    const descriptions = {
+  const getChartTypeDescription = (chartType: string) => {
+    const descriptions: Record<string, string> = {
       bar: "Best for comparing categories. Requires categorical X-axis and numeric Y-axis.",
       line: "Perfect for trends over time. Supports dates, numbers, and categories on X-axis.",
       area: "Like line charts but with filled area. Great for showing volumes over time.",
@@ -436,6 +541,11 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
       )
     }
 
+    // Determine the correct keys to use for data access
+    const isPieDonut = chart.type === 'pie' || chart.type === 'donut';
+    const xAxisKey = isPieDonut ? 'name' : chart.xAxis || Object.keys(chart.data[0] || {})[0];
+    const yAxisKey = isPieDonut ? 'value' : chart.yAxis || Object.keys(chart.data[0] || {})[1];
+
     // Helper function to get display name for columns
     const getColumnDisplayName = (columnName: string) => {
       return chart.columns?.[columnName] || columnName
@@ -459,21 +569,21 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
             <BarChart data={chart.data}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
-                dataKey={chart.xAxis || Object.keys(chart.data[0] || {})[0]} 
-                label={{ value: getColumnDisplayName(chart.xAxis || Object.keys(chart.data[0] || {})[0]), position: 'insideBottom', offset: -5 }}
+                dataKey={xAxisKey} 
+                label={{ value: getColumnDisplayName(xAxisKey), position: 'insideBottom', offset: -5 }}
               />
               <YAxis 
-                label={{ value: getColumnDisplayName(chart.yAxis || Object.keys(chart.data[0] || {})[1]), angle: -90, position: 'insideLeft' }}
+                label={{ value: getColumnDisplayName(yAxisKey), angle: -90, position: 'insideLeft' }}
               />
               <Tooltip 
-                labelFormatter={(value) => getColumnDisplayName(chart.xAxis || Object.keys(chart.data[0] || {})[0]) + ': ' + value}
+                labelFormatter={(value) => getColumnDisplayName(xAxisKey) + ': ' + value}
                 formatter={(value, name) => [value, getColumnDisplayName(name as string)]}
               />
               <Legend formatter={(value) => getColumnDisplayName(value)} />
               <Bar 
-                dataKey={chart.yAxis || Object.keys(chart.data[0] || {})[1]} 
+                dataKey={yAxisKey} 
                 fill={chart.color}
-                name={getColumnDisplayName(chart.yAxis || Object.keys(chart.data[0] || {})[1])}
+                name={getColumnDisplayName(yAxisKey)}
               />
             </BarChart>
           </ResponsiveContainer>
@@ -485,23 +595,23 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
             <LineChart data={chart.data}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
-                dataKey={chart.xAxis || Object.keys(chart.data[0] || {})[0]} 
-                label={{ value: getColumnDisplayName(chart.xAxis || Object.keys(chart.data[0] || {})[0]), position: 'insideBottom', offset: -5 }}
+                dataKey={xAxisKey} 
+                label={{ value: getColumnDisplayName(xAxisKey), position: 'insideBottom', offset: -5 }}
               />
               <YAxis 
-                label={{ value: getColumnDisplayName(chart.yAxis || Object.keys(chart.data[0] || {})[1]), angle: -90, position: 'insideLeft' }}
+                label={{ value: getColumnDisplayName(yAxisKey), angle: -90, position: 'insideLeft' }}
               />
               <Tooltip 
-                labelFormatter={(value) => getColumnDisplayName(chart.xAxis || Object.keys(chart.data[0] || {})[0]) + ': ' + value}
+                labelFormatter={(value) => getColumnDisplayName(xAxisKey) + ': ' + value}
                 formatter={(value, name) => [value, getColumnDisplayName(name as string)]}
               />
               <Legend formatter={(value) => getColumnDisplayName(value)} />
               <Line
                 type="monotone"
-                dataKey={chart.yAxis || Object.keys(chart.data[0] || {})[1]}
+                dataKey={yAxisKey}
                 stroke={chart.color}
                 strokeWidth={2}
-                name={getColumnDisplayName(chart.yAxis || Object.keys(chart.data[0] || {})[1])}
+                name={getColumnDisplayName(yAxisKey)}
               />
             </LineChart>
           </ResponsiveContainer>
@@ -512,13 +622,13 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           <ResponsiveContainer {...commonProps}>
             <AreaChart data={chart.data}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={chart.xAxis || Object.keys(chart.data[0] || {})[0]} />
+              <XAxis dataKey={xAxisKey} />
               <YAxis />
               <Tooltip />
               <Legend />
               <Area
                 type="monotone"
-                dataKey={chart.yAxis || Object.keys(chart.data[0] || {})[1]}
+                dataKey={yAxisKey}
                 stroke={chart.color}
                 fill={chart.color}
                 fillOpacity={0.3}
@@ -528,34 +638,6 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         )
 
       case "pie":
-        return (
-          <ResponsiveContainer {...commonProps}>
-            <PieChart>
-              <Pie
-                data={chart.data}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-                nameKey="name"
-              >
-                {chart.data.map((entry, index) => (
-                  <Cell 
-                    key={`cell-${index}`} 
-                    fill={getSeriesColor(entry.name, entry.color || chartColors[index % chartColors.length])} 
-                  />
-                ))}
-              </Pie>
-              <Tooltip 
-                formatter={(value, name) => [value, getColumnDisplayName(name as string)]}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-        )
-
       case "donut":
         return (
           <ResponsiveContainer {...commonProps}>
@@ -565,23 +647,24 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }) => `${name} ${percent ? (percent * 100).toFixed(0) : '0'}%`}
                 outerRadius={80}
-                innerRadius={40}
+                innerRadius={chart.type === 'donut' ? 40 : 0}
                 fill="#8884d8"
-                dataKey="value"
-                nameKey="name"
+                dataKey={yAxisKey} // Should be "value"
+                nameKey={xAxisKey} // Should be "name"
               >
                 {chart.data.map((entry, index) => (
                   <Cell 
                     key={`cell-${index}`} 
-                    fill={getSeriesColor(entry.name, entry.color || chartColors[index % chartColors.length])} 
+                    fill={getSeriesColor(entry[xAxisKey], entry.color || chartColors[index % chartColors.length])} 
                   />
                 ))}
               </Pie>
               <Tooltip 
                 formatter={(value, name) => [value, getColumnDisplayName(name as string)]}
               />
+               <Legend formatter={(value) => getColumnDisplayName(value)} />
             </PieChart>
           </ResponsiveContainer>
         )
@@ -591,13 +674,13 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           <ResponsiveContainer {...commonProps}>
             <LineChart data={chart.data}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={chart.xAxis || Object.keys(chart.data[0] || {})[0]} type="number" />
+              <XAxis dataKey={xAxisKey} type="number" />
               <YAxis />
               <Tooltip />
               <Legend />
               <Line
                 type="monotone"
-                dataKey={chart.yAxis || Object.keys(chart.data[0] || {})[1]}
+                dataKey={yAxisKey}
                 stroke={chart.color}
                 strokeWidth={0}
                 dot={{ fill: chart.color, strokeWidth: 2, r: 4 }}
@@ -611,7 +694,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           <ResponsiveContainer {...commonProps}>
             <BarChart data={chart.data}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={chart.xAxis || Object.keys(chart.data[0] || {})[0]} />
+              <XAxis dataKey={xAxisKey} />
               <YAxis />
               <Tooltip />
               <Legend />
@@ -636,52 +719,104 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           </div>
         )
     }
-  }
 
-  // Get chart icon
-  const getChartIcon = (type: string) => {
-    switch (type) {
-      case "bar": return <BarChart3 className="h-4 w-4" />
-      case "line": return <LineChartIcon className="h-4 w-4" />
-      case "area": return <TrendingUp className="h-4 w-4" />
-      case "pie": 
-      case "donut": return <PieChartIcon className="h-4 w-4" />
-      case "scatter": return <BarChart3 className="h-4 w-4" />
-      case "histogram": return <BarChart3 className="h-4 w-4" />
-      case "heatmap": return <Grid3X3 className="h-4 w-4" />
-      default: return <BarChart3 className="h-4 w-4" />
+    // Show loading spinner when creating a chart
+    if (isLoading) {
+      return (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-sm z-10">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      )
     }
   }
 
   const createChart = async () => {
-    const chartConfig = chartTypes[newChart.type as keyof typeof chartTypes]
-    const needsYAxis = !chartConfig?.noYAxis
-    
-    if (!newChart.title || !selectedTable || !selectedXColumn || (needsYAxis && !selectedYColumn) || !selectedDashboard) return
+    if (!selectedDashboard || !newChart.title || !newChart.type) return
 
-    // Special handling for pie and donut charts - they need categorical data with counts
-    let generatedQuery = ""
-    if (newChart.type === "pie" || newChart.type === "donut") {
-      generatedQuery = `SELECT ${selectedXColumn} as name, COUNT(*) as value FROM ${selectedTable} GROUP BY ${selectedXColumn} ORDER BY value DESC LIMIT 10`
-    } else {
-      generatedQuery = needsYAxis 
-        ? `SELECT ${selectedXColumn}, ${selectedYColumn} FROM ${selectedTable} LIMIT 100`
-        : `SELECT ${selectedXColumn} FROM ${selectedTable} LIMIT 100`
+    // Find the selected database to determine its type
+    let selectedDb = availableDatabases.find(db => db.id.toString() === selectedChartDatabase)
+    
+    // If database not found in local array, try to fetch it from API
+    if (!selectedDb && selectedChartDatabase) {
+      console.log("Database not found in local array, fetching from API...")
+      try {
+        const databases = await apiClient.getDatabases()
+        const convertedDatabases = databases.map((db: any) => ({
+          id: db.id,
+          name: db.name,
+          type: db.db_type,
+          host: db.host,
+          port: db.port,
+          database: db.database_name,
+          username: db.username,
+          connection_string: db.connection_string,
+          status: db.status
+        }))
+        
+        selectedDb = convertedDatabases.find(db => db.id.toString() === selectedChartDatabase)
+        
+        // Update the local array for future use
+        setAvailableDatabases(prev => {
+          const existingIds = prev.map(db => db.id)
+          const newDatabases = convertedDatabases.filter(db => !existingIds.includes(db.id))
+          return [...prev, ...newDatabases]
+        })
+        
+      } catch (error) {
+        console.error("Failed to fetch database info:", error)
+      }
     }
+    
+    if (!selectedDb) {
+      console.error("Selected database not found:", {
+        selectedChartDatabase,
+        availableDatabases: availableDatabases.map(db => ({ id: db.id, name: db.name, type: db.type }))
+      })
+      toast({
+        title: "Error",
+        description: "Selected database not found. Please select a valid database.",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    const isMongoDb = selectedDb.type === "mongodb" || selectedDb.type === "mongodb-atlas"
+    
+    // Generate the query using the centralized generateQuery function
+    const generatedQuery = generateQuery()
+    
+    if (!generatedQuery) {
+      console.error("Query generation failed. Check selections.")
+      toast({
+        title: "Error",
+        description: "Could not generate a valid query. Please check your selections.",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    console.log("Database type detection:", { 
+      selectedChartDatabase, 
+      selectedDbType: selectedDb.type, 
+      isMongoDb,
+      generatedQuery
+    })
     
     try {
       // Execute the query to get real data
       let chartData = []
       if (selectedChartDatabase) {
+        console.log(selectedDb.type ? "true : " + selectedDb.type : "false")
         console.log("Executing query:", generatedQuery)
         console.log("Database ID:", selectedChartDatabase)
         
-        const result = await apiClient.executeQuery(selectedChartDatabase, generatedQuery)
+        const result = await apiClient.executeQuery(parseInt(selectedChartDatabase), generatedQuery)
         console.log("Query result:", result)
         
         if (result.success && result.data) {
-          chartData = result.data
-          console.log("Chart data set to:", chartData)
+          // Normalize data before setting it
+          chartData = normalizeChartData(result.data, newChart.type as string, selectedDb.type)
+          console.log("Normalized chart data set to:", chartData)
         } else {
           console.error("Query failed or no data:", result)
           toast({
@@ -726,6 +861,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         title: newChart.title,
         type: newChart.type as "bar" | "line" | "pie" | "area" | "scatter" | "histogram" | "heatmap" | "donut",
         query: generatedQuery,
+        database_id: selectedChartDatabase ? parseInt(selectedChartDatabase) : undefined, // Add database_id
         xAxis: selectedXColumn,
         yAxis: needsYAxis ? selectedYColumn : undefined,
         data: chartData,
@@ -738,8 +874,6 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         y: Math.floor((selectedDashboard.charts.length * 2) / 4) * 2, // Auto-position in grid
         w: 2, // Default width in grid units
         h: 2, // Default height in grid units
-        columns: {}, // Initialize empty column mappings
-        customColors: {} // Initialize empty custom color mappings
       }
 
       // Update dashboard with new chart via API
@@ -1114,6 +1248,104 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     }
   }
 
+  // Data normalization function
+  const normalizeChartData = (data: any[], chartType: string, dbType: string): any[] => {
+    if (!data || data.length === 0) return [];
+
+    // For pie/donut charts, the queries are already aliased to return `name` and `value`.
+    // For other chart types, we use the raw column names stored in xAxis/yAxis.
+    // Therefore, no data transformation is needed here at the moment.
+    // This function remains as a placeholder for any future complex transformations.
+    return data;
+  }
+
+  // Function to refresh chart data by re-executing the query
+  const refreshChartData = async (chart: ChartConfig) => {
+    try {
+      console.log("Refreshing chart data for:", chart.title)
+      console.log("Original query:", chart.query)
+      console.log("Database ID:", chart.database_id)
+
+      // Find the database to determine its type
+      const chartDatabase = availableDatabases.find(db => db.id === chart.database_id)
+      if (!chartDatabase) {
+        console.error("Database not found for chart:", chart.database_id)
+        return chart
+      }
+
+      const isMongoDb = chartDatabase.type === "mongodb" || chartDatabase.type === "mongodb-atlas"
+      
+      // Convert SQL query to MongoDB if needed
+      let queryToExecute = chart.query
+      if (isMongoDb && chart.query.toLowerCase().includes('select')) {
+        console.log("Converting SQL query to MongoDB for chart:", chart.title)
+        
+        // Extract table name and columns from SQL query
+        const tableMatch = chart.query.match(/FROM\s+(\w+)/i)
+        const columnsMatch = chart.query.match(/SELECT\s+(.+?)\s+FROM/i)
+        
+        if (tableMatch && columnsMatch) {
+          const tableName = tableMatch[1]
+          const columnsStr = columnsMatch[1].trim()
+          
+          if (chart.type === "pie" || chart.type === "donut") {
+            // Convert GROUP BY query to MongoDB aggregation
+            const columnMatch = columnsStr.match(/(\w+)\s+as\s+name/i)
+            if (columnMatch) {
+              const column = columnMatch[1]
+              queryToExecute = `db.${tableName}.aggregate([
+                { $group: { _id: "$${column}", value: { $sum: 1 } } },
+                { $project: { name: "$_id", value: 1, _id: 0 } },
+                { $sort: { value: -1 } },
+                { $limit: 10 }
+              ])`
+            }
+          } else {
+            // Convert SELECT query to MongoDB find
+            const columns = columnsStr.split(',').map(col => col.trim().split(' ')[0])
+            const projection = columns.reduce((proj, col) => {
+              proj[col] = 1
+              return proj
+            }, {} as any)
+            
+            queryToExecute = `db.${tableName}.find({}, ${JSON.stringify(projection)}).limit(100)`
+          }
+          
+          console.log("Converted query:", queryToExecute)
+        }
+      }
+
+      // Execute the query
+      if (!chart.database_id) {
+        console.error('Chart missing database_id:', chart.id)
+        return chart
+      }
+      
+      const result = await apiClient.executeQuery(chart.database_id, queryToExecute)
+      console.log("Query result for chart refresh:", result)
+
+      if (result.success && result.data) {
+        // Normalize data
+        const normalizedData = normalizeChartData(result.data, chart.type, chartDatabase.type)
+        
+        // Update chart with new data and query
+        const updatedChart = {
+          ...chart,
+          query: queryToExecute, // Save the converted query
+          data: normalizedData
+        }
+        console.log("Chart data refreshed successfully:", updatedChart.title)
+        return updatedChart
+      } else {
+        console.error("Failed to refresh chart data:", result.error)
+        return chart
+      }
+    } catch (error) {
+      console.error("Error refreshing chart data:", error)
+      return chart
+    }
+  }
+
   // Function to update dashboard layout and chart positions
   const updateDashboard = async (dashboard: Dashboard) => {
     try {
@@ -1294,7 +1526,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                       </SelectTrigger>
                       <SelectContent>
                         {availableDatabases.map((db) => (
-                          <SelectItem key={db.id} value={db.id}>
+                          <SelectItem key={db.id} value={db.id.toString()}>
                             {db.name} ({db.type})
                           </SelectItem>
                         ))}
@@ -1783,7 +2015,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   isDraggable={dragMode}
                   isResizable={dragMode}
                   draggableHandle={selectedChart ? `.draggable-${selectedChart}` : ".no-drag"}
-                  onLayoutChange={(layout, layouts) => {
+                                   onLayoutChange={(layout, layouts) => {
                     // Only update if drag mode is enabled and chart is selected
                     if (!dragMode || !selectedChart || !selectedDashboard || !selectedDashboard.charts) return
                     

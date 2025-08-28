@@ -75,12 +75,12 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
       // Convert backend format to frontend format
       const convertedTables = tablesData.map(table => ({
         name: table.name,
-        rowCount: table.row_count,
+        rowCount: table.row_count ?? 0, // Use nullish coalescing for safety
         columns: table.columns.map(col => ({
           name: col.name,
           type: col.type,
-          nullable: col.nullable,
-          primaryKey: col.primaryKey,
+          nullable: col.nullable ?? true, // Default to nullable for MongoDB
+          primaryKey: col.primaryKey ?? false,
           defaultValue: col.defaultValue
         }))
       }))
@@ -90,7 +90,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
       console.error("Failed to load tables:", error)
       toast({
         title: "Error",
-        description: "Failed to load database tables",
+        description: `Failed to load database ${tableLabel.toLowerCase()}`,
         variant: "destructive",
       })
     } finally {
@@ -142,7 +142,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
       console.error("Failed to load table data:", error)
       toast({
         title: "Error",
-        description: `Failed to load data for table ${selectedTable.name}`,
+        description: `Failed to load data for ${tableSingular} ${selectedTable.name}`,
         variant: "destructive",
       })
     } finally {
@@ -236,9 +236,24 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
   }
 
   const handleQueryTable = (tableName: string) => {
-    const query = `SELECT * FROM ${tableName} LIMIT 10;`
+    // Generate appropriate query based on database type
+    let query: string
+    
+    if (database.type === "mongodb" || database.type === "mongodb-atlas") {
+      // MongoDB query
+      query = `db.${tableName}.find({}).limit(10)`
+    } else {
+      // SQL query for other database types
+      query = `SELECT * FROM ${tableName} LIMIT 10;`
+    }
+    
     onOpenQuery?.(query)
   }
+
+  // Get appropriate terminology based on database type
+  const isMongoDb = database.type === "mongodb" || database.type === "mongodb-atlas"
+  const tableLabel = isMongoDb ? "Collections" : "Tables"
+  const tableSingular = isMongoDb ? "collection" : "table"
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-12rem)]">
@@ -248,12 +263,12 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
           <CardHeader className="pb-3">
             <CardTitle className="font-serif font-bold flex items-center gap-2">
               <Database className="h-5 w-5" />
-              Tables ({filteredTables.length})
+              {tableLabel} ({filteredTables.length})
             </CardTitle>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search tables..."
+                placeholder={`Search ${tableLabel.toLowerCase()}...`}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-9"
@@ -265,7 +280,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin" />
-                <span className="ml-2">Loading tables...</span>
+                <span className="ml-2">Loading {tableLabel.toLowerCase()}...</span>
               </div>
             ) : filteredTables.length > 0 ? (
               <div className="space-y-1 p-4">
@@ -289,7 +304,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
             ) : (
               <div className="text-center py-8 text-muted-foreground">
                 <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No tables found</p>
+                <p>No {tableLabel.toLowerCase()} found</p>
               </div>
             )}
           </ScrollArea>
@@ -309,7 +324,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     {selectedTable.name}
                   </CardTitle>
                   <CardDescription>
-                    {selectedTable.columns.length} columns • {(selectedTable.rowCount ?? 0).toLocaleString()} rows
+                    {selectedTable.columns.length} {isMongoDb ? "fields" : "columns"} • {(selectedTable.rowCount ?? 0).toLocaleString()} {isMongoDb ? "documents" : "rows"}
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
@@ -322,10 +337,10 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     <Code className="h-4 w-4" />
                     Query
                   </Button>
-                  <Button variant="outline" size="sm" className="gap-2 bg-transparent">
+                  {/* <Button variant="outline" size="sm" className="gap-2 bg-transparent">
                     <BarChart3 className="h-4 w-4" />
                     Analyze
-                  </Button>
+                  </Button> */}
                 </div>
               </div>
             </CardHeader>
@@ -334,7 +349,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="structure" className="gap-2">
                     <Columns className="h-4 w-4" />
-                    Structure
+                    {isMongoDb ? "Schema" : "Structure"}
                   </TabsTrigger>
                   <TabsTrigger value="data" className="gap-2">
                     <Eye className="h-4 w-4" />
@@ -351,7 +366,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Column</TableHead>
+                          <TableHead>{isMongoDb ? "Field" : "Column"}</TableHead>
                           <TableHead>Type</TableHead>
                           <TableHead>Constraints</TableHead>
                           <TableHead>Default</TableHead>
@@ -394,7 +409,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     {loadingData ? (
                       <div className="flex items-center justify-center py-8">
                         <Loader2 className="h-8 w-8 animate-spin" />
-                        <span className="ml-2">Loading table data...</span>
+                        <span className="ml-2">Loading {tableSingular} data...</span>
                       </div>
                     ) : tableData.length > 0 ? (
                       <Table>
@@ -434,7 +449,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                     ) : (
                       <div className="text-center py-8 text-muted-foreground">
                         <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>No data available for this table</p>
+                        <p>No data available for this {tableSingular}</p>
                       </div>
                     )}
                     </div>
@@ -447,7 +462,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                       <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium flex items-center gap-2">
                           <Users className="h-4 w-4 text-blue-500" />
-                          Total Rows
+                          Total {isMongoDb ? "Documents" : "Rows"}
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
@@ -458,7 +473,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                       <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium flex items-center gap-2">
                           <Columns className="h-4 w-4 text-green-500" />
-                          Columns
+                          {isMongoDb ? "Fields" : "Columns"}
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
@@ -482,7 +497,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                       <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium flex items-center gap-2">
                           <Shield className="h-4 w-4 text-purple-500" />
-                          Nullable Columns
+                          Nullable {isMongoDb ? "Fields" : "Columns"}
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
@@ -526,8 +541,8 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
           <Card className="h-full flex items-center justify-center">
             <CardContent className="text-center">
               <TableIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <CardTitle className="font-serif font-bold mb-2">Select a Table</CardTitle>
-              <CardDescription>Choose a table from the sidebar to explore its structure and data</CardDescription>
+              <CardTitle className="font-serif font-bold mb-2">Select a {tableSingular}</CardTitle>
+              <CardDescription>Choose a {tableSingular} from the sidebar to explore its structure and data</CardDescription>
             </CardContent>
           </Card>
         )}

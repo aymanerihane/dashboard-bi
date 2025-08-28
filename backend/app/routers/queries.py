@@ -9,6 +9,34 @@ from app.db_manager import db_manager
 
 router = APIRouter()
 
+def prepare_connection_data(connection: DBConnection):
+    """Prepare connection data based on database type"""
+    if connection.db_type == "mongodb-atlas":
+        if not connection.connection_string:
+            raise HTTPException(status_code=400, detail="MongoDB Atlas connection string not found")
+        return {
+            "db_type": connection.db_type,
+            "connection_string": connection.connection_string,
+            "database_name": connection.database_name
+        }
+    elif connection.db_type == "sqlite":
+        if not connection.file_path:
+            raise HTTPException(status_code=400, detail="SQLite file path not found")
+        return {
+            "db_type": connection.db_type,
+            "database_name": connection.file_path
+        }
+    else:
+        # Standard databases (PostgreSQL, MySQL, MongoDB, etc.)
+        return {
+            "db_type": connection.db_type,
+            "host": connection.host,
+            "port": connection.port,
+            "database_name": connection.database_name,
+            "username": connection.username,
+            "password": db_manager.decrypt_password(connection.password) if connection.password else None
+        }
+
 @router.post("/execute", response_model=QueryResult)
 async def execute_query(
     query_data: QueryExecute,
@@ -24,15 +52,8 @@ async def execute_query(
     if not connection:
         raise HTTPException(status_code=404, detail="Database connection not found")
     
-    # Prepare connection data
-    connection_data = {
-        "db_type": connection.db_type,
-        "host": connection.host,
-        "port": connection.port,
-        "database_name": connection.database_name,
-        "username": connection.username,
-        "password": db_manager.decrypt_password(connection.password) if connection.password else None
-    }
+    # Prepare connection data based on database type
+    connection_data = prepare_connection_data(connection)
     
     # Execute query
     result = await db_manager.execute_query(connection_data, query_data.query, query_data.limit)
@@ -81,14 +102,7 @@ async def explore_tables(
         raise HTTPException(status_code=404, detail="Database connection not found")
     
     # Prepare connection data
-    connection_data = {
-        "db_type": connection.db_type,
-        "host": connection.host,
-        "port": connection.port,
-        "database_name": connection.database_name,
-        "username": connection.username,
-        "password": db_manager.decrypt_password(connection.password) if connection.password else None
-    }
+    connection_data = prepare_connection_data(connection)
     
     try:
         if connection.db_type in ["mongodb", "mongodb-atlas"]:
@@ -125,14 +139,7 @@ async def explore_table_data(
         raise HTTPException(status_code=404, detail="Database connection not found")
     
     # Prepare connection data
-    connection_data = {
-        "db_type": connection.db_type,
-        "host": connection.host,
-        "port": connection.port,
-        "database_name": connection.database_name,
-        "username": connection.username,
-        "password": db_manager.decrypt_password(connection.password) if connection.password else None
-    }
+    connection_data = prepare_connection_data(connection)
     
     try:
         offset = (page - 1) * limit
@@ -195,14 +202,7 @@ async def search_data(
         raise HTTPException(status_code=404, detail="Database connection not found")
     
     # Prepare connection data
-    connection_data = {
-        "db_type": connection.db_type,
-        "host": connection.host,
-        "port": connection.port,
-        "database_name": connection.database_name,
-        "username": connection.username,
-        "password": db_manager.decrypt_password(connection.password) if connection.password else None
-    }
+    connection_data = prepare_connection_data(connection)
     
     try:
         table_name = search_data.get("table")

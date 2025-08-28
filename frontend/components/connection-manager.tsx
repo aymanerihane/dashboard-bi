@@ -148,39 +148,29 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
   }
 
   const handleConnectClick = async (connection: DatabaseConfig) => {
-    // For SQLite and MongoDB Atlas, connect directly
-    if (connection.type === "sqlite" || connection.type === "mongodb-atlas") {
-      onConnect(connection)
-      return
-    }
-
-    // For PostgreSQL/MySQL, try to connect first with stored credentials
+    setTestingConnection(connection.id);
     try {
-      setTestingConnection(connection.id)
-      
-      // First, try a regular connection (backend should have stored password)
-      const result = await databaseService.testConnection(connection.id)
-      
+      const result = await databaseService.testConnection(connection.id);
       if (result.success) {
-        onConnect(connection)
+        onConnect(connection);
         toast({
           title: "Connected",
           description: `Successfully connected to ${connection.name}`,
-        })
+        });
       } else {
-        // Only show password prompt if connection fails (password needed)
-        setPasswordPrompt({ connection, error: result.message })
+        // If the test fails, it might be because a password is required.
+        setPasswordPrompt({ connection, error: result.message });
       }
     } catch (error) {
-      // Connection error, show password prompt
-      setPasswordPrompt({ 
-        connection, 
-        error: error instanceof Error ? error.message : "Connection failed - password may be required" 
-      })
+      // Handle cases where the test connection call itself fails
+      setPasswordPrompt({
+        connection,
+        error: error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
     } finally {
-      setTestingConnection(null)
+      setTestingConnection(null);
     }
-  }
+  };
 
   const handlePasswordSubmit = async (password: string) => {
     if (!passwordPrompt) return

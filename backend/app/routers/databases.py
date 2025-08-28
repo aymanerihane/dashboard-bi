@@ -309,14 +309,7 @@ async def connect_with_password(
                     message="Authentication failed",
                     error="Invalid password"
                 )
-        else:
-            # If no password is stored, reject the connection
-            return ConnectionTestResult(
-                success=False,
-                message="Authentication failed",
-                error="No password stored for this connection"
-            )
-        
+     
         # Password verified, prepare connection data
         connection_data = {
             "db_type": connection.db_type,
