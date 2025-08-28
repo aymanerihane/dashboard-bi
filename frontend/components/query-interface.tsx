@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import {
@@ -375,7 +374,7 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <ScrollArea className="h-[300px]">
+              <div className="h-[300px] overflow-auto scrollbar-hide">
                 <div className="space-y-2 p-4">
                   {queryHistory.map((item) => (
                     <div
@@ -402,7 +401,7 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
                     </div>
                   ))}
                 </div>
-              </ScrollArea>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -444,36 +443,44 @@ export function QueryInterface({ database }: QueryInterfaceProps) {
                 </AlertDescription>
               </Alert>
             ) : queryResult ? (
-              <ScrollArea className="h-[400px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      {queryResult.columns.map((column) => (
-                        <TableHead key={column} className="font-medium">
-                          {column}
-                        </TableHead>
-                      ))}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {queryResult.rows.map((row, index) => (
-                      <TableRow key={index}>
-                        {row.map((cell: any, cellIndex: number) => (
-                          <TableCell key={cellIndex}>
-                            {cell === null || cell === undefined ? (
-                              <span className="text-muted-foreground italic">NULL</span>
-                            ) : typeof cell === "string" && cell.includes("T") && cell.includes("Z") ? (
-                              new Date(cell).toLocaleString()
-                            ) : (
-                              String(cell)
-                            )}
-                          </TableCell>
+              <div className="w-full border rounded-md">
+                <div className="h-[400px] w-full overflow-auto scrollbar-hide">
+                  <div className="w-full overflow-x-auto">
+                    <Table className="w-full">
+                      <TableHeader>
+                        <TableRow>
+                          {queryResult.columns.map((column) => (
+                            <TableHead key={column} className="font-medium whitespace-nowrap min-w-[120px] px-4">
+                              {column}
+                            </TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {queryResult.rows.map((row, index) => (
+                          <TableRow key={index}>
+                            {row.map((cell: any, cellIndex: number) => (
+                              <TableCell key={cellIndex} className="whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis px-4">
+                                {cell === null || cell === undefined ? (
+                                  <span className="text-muted-foreground italic">NULL</span>
+                                ) : typeof cell === "string" && cell.includes("T") && cell.includes("Z") ? (
+                                  <span title={new Date(cell).toString()}>
+                                    {new Date(cell).toLocaleString()}
+                                  </span>
+                                ) : (
+                                  <span title={String(cell)}>
+                                    {String(cell)}
+                                  </span>
+                                )}
+                              </TableCell>
+                            ))}
+                          </TableRow>
                         ))}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              </div>
             ) : null}
           </CardContent>
         </Card>

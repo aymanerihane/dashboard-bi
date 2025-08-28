@@ -235,12 +235,12 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-serif font-bold mb-2">Database Connections</h2>
           <p className="text-muted-foreground">Manage your database connections</p>
         </div>
-        <Button onClick={handleAddNew} className="gap-2" disabled={isLoading}>
+        <Button onClick={handleAddNew} className="gap-2 w-full sm:w-auto" disabled={isLoading}>
           {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           Add Connection
         </Button>
@@ -267,28 +267,28 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
           {connections.map((connection) => (
             <Card key={connection.id} className="hover:shadow-md transition-shadow">
               <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    {getDatabaseIcon(connection.type)}
-                    <div>
-                      <CardTitle className="text-lg font-serif font-bold">{connection.name}</CardTitle>
-                      <CardDescription className="text-sm">{connection.database}</CardDescription>
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                      <div className="shrink-0">
+                        {getDatabaseIcon(connection.type)}
+                      </div>
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <CardTitle className="text-base sm:text-lg font-serif font-bold truncate" title={connection.name}>
+                          {connection.name}
+                        </CardTitle>
+                        <CardDescription className="text-xs sm:text-sm truncate" title={connection.database}>
+                          {connection.database}
+                        </CardDescription>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className={getTypeColor(connection.type)}>{connection.type.toUpperCase()}</Badge>
-                    {connection.status && (
-                      <Badge variant={connection.status === "connected" ? "default" : "secondary"}>
-                        {connection.status}
-                      </Badge>
-                    )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" disabled={isLoading}>
+                        <Button variant="ghost" size="sm" disabled={isLoading} className="shrink-0 h-8 w-8 p-0">
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -315,23 +315,46 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                    <Badge className={`${getTypeColor(connection.type)} text-xs`} variant="secondary">
+                      {connection.type.toUpperCase()}
+                    </Badge>
+                    {connection.status && (
+                      <Badge variant={connection.status === "connected" ? "default" : "secondary"} className="text-xs">
+                        {connection.status}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-2 text-sm text-muted-foreground mb-4">
+              <CardContent className="pt-0">
+                <div className="space-y-1.5 text-xs sm:text-sm text-muted-foreground mb-3 sm:mb-4">
                   {connection.host && (
-                    <p>
-                      Host: {connection.host}:{connection.port}
+                    <p className="truncate" title={`${connection.host}:${connection.port}`}>
+                      <span className="font-medium">Host:</span> {connection.host}:{connection.port}
                     </p>
                   )}
-                  {connection.filename && <p>File: {connection.filename}</p>}
-                  {connection.username && <p>User: {connection.username}</p>}
-                  {connection.createdAt && <p>Created: {connection.createdAt.toLocaleDateString()}</p>}
+                  {connection.filename && (
+                    <p className="truncate" title={connection.filename}>
+                      <span className="font-medium">File:</span> {connection.filename}
+                    </p>
+                  )}
+                  {connection.username && (
+                    <p className="truncate" title={connection.username}>
+                      <span className="font-medium">User:</span> {connection.username}
+                    </p>
+                  )}
+                  {connection.createdAt && (
+                    <p className="truncate">
+                      <span className="font-medium">Created:</span> {connection.createdAt.toLocaleDateString()}
+                    </p>
+                  )}
                 </div>
                 <Button
-                  className="w-full gap-2"
+                  className="w-full gap-2 text-sm"
                   onClick={() => handleConnectClick(connection)}
                   disabled={isLoading || testingConnection === connection.id}
+                  size="sm"
                 >
                   {testingConnection === connection.id ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -347,7 +370,7 @@ export function ConnectionManager({ connections, onConnectionsChange, onConnect 
       )}
 
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="sr-only">{editingConnection ? "Edit Connection" : "Add Connection"}</DialogTitle>
           </DialogHeader>

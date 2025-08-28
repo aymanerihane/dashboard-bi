@@ -385,7 +385,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {!testOnly && (
             <div className="space-y-2">
               <Label htmlFor="name">Connection Name</Label>
@@ -397,7 +397,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
               />
             </div>
           )}
-          <div className={`space-y-2 ${testOnly ? 'col-span-2' : ''}`}>
+          <div className={`space-y-2 ${testOnly ? 'sm:col-span-2' : ''}`}>
             <Label htmlFor="type">Database Type</Label>
             <Select value={config.type} onValueChange={handleTypeChange}>
               <SelectTrigger>
@@ -533,7 +533,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="host">Host</Label>
                 <Input
@@ -644,12 +644,12 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
           </Alert>
         )}
 
-        <div className="flex justify-between gap-4">
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onCancel}>
+        <div className="flex flex-col sm:flex-row sm:justify-between gap-4">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={onCancel} className="w-full sm:w-auto">
               Cancel
             </Button>
-            <Button variant="outline" onClick={testConnection} disabled={!canTest || testing}>
+            <Button variant="outline" onClick={testConnection} disabled={!canTest || testing} className="w-full sm:w-auto">
               {testing ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -661,7 +661,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
             </Button>
           </div>
           {!testOnly && (
-            <Button onClick={handleSave} disabled={!isValidForSave}>
+            <Button onClick={handleSave} disabled={!isValidForSave} className="w-full sm:w-auto">
               {initialConfig ? "Update Connection" : "Save Connection"}
             </Button>
           )}

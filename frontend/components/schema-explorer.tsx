@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Search,
   TableIcon,
@@ -276,7 +275,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-                      <ScrollArea className="h-[calc(100vh-14rem)]">
+                      <div className="h-[calc(100vh-14rem)] overflow-auto scrollbar-hide">
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin" />
@@ -307,7 +306,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                 <p>No {tableLabel.toLowerCase()} found</p>
               </div>
             )}
-          </ScrollArea>
+          </div>
           </CardContent>
         </Card>
       </div>
@@ -362,7 +361,7 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                 </TabsList>
 
                 <TabsContent value="structure" className="mt-4">
-                  <ScrollArea className="h-[calc(100vh-20rem)]">
+                  <div className="h-[calc(100vh-20rem)] overflow-auto scrollbar-hide">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -400,60 +399,62 @@ export function SchemaExplorer({ database, onOpenQuery }: SchemaExplorerProps) {
                         ))}
                       </TableBody>
                     </Table>
-                  </ScrollArea>
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="data" className="mt-4">
-                  <ScrollArea className="h-[calc(100vh-20rem)] w-full" isBothVH={true}>
-                    <div className="min-w-full">
-                    {loadingData ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="h-8 w-8 animate-spin" />
-                        <span className="ml-2">Loading {tableSingular} data...</span>
+                  <div className="w-full border rounded-md">
+                    <div className="h-[calc(100vh-20rem)] w-full overflow-auto scrollbar-hide">
+                      <div className="w-full overflow-x-auto">
+                        {loadingData ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-8 w-8 animate-spin" />
+                            <span className="ml-2">Loading {tableSingular} data...</span>
+                          </div>
+                        ) : tableData.length > 0 ? (
+                          <Table className="w-full">
+                            <TableHeader>
+                              <TableRow>
+                                {apiColumns.length > 0 ? (
+                                  apiColumns.map((columnName) => (
+                                    <TableHead key={columnName} className="whitespace-nowrap min-w-[120px] px-4">{columnName}</TableHead>
+                                  ))
+                                ) : (
+                                  selectedTable.columns.map((column) => (
+                                    <TableHead key={column.name} className="whitespace-nowrap min-w-[120px] px-4">{column.name}</TableHead>
+                                  ))
+                                )}
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {tableData.map((row, index) => (
+                                <TableRow key={index}>
+                                  {apiColumns.length > 0 ? (
+                                    apiColumns.map((columnName, columnIndex) => (
+                                      <TableCell key={columnName} className="whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis px-4" title={String(Array.isArray(row) ? row[columnIndex] : row[columnName] || '')}>
+                                        {formatValue(Array.isArray(row) ? row[columnIndex] : row[columnName])}
+                                      </TableCell>
+                                    ))
+                                  ) : (
+                                    selectedTable.columns.map((column, columnIndex) => (
+                                      <TableCell key={column.name} className="whitespace-nowrap max-w-[200px] overflow-hidden text-ellipsis px-4" title={String(Array.isArray(row) ? row[columnIndex] : row[column.name] || '')}>
+                                        {formatValue(Array.isArray(row) ? row[columnIndex] : row[column.name])}
+                                      </TableCell>
+                                    ))
+                                  )}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        ) : (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p>No data available for this {tableSingular}</p>
+                          </div>
+                        )}
                       </div>
-                    ) : tableData.length > 0 ? (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            {apiColumns.length > 0 ? (
-                              apiColumns.map((columnName) => (
-                                <TableHead key={columnName} className="whitespace-nowrap min-w-[120px]">{columnName}</TableHead>
-                              ))
-                            ) : (
-                              selectedTable.columns.map((column) => (
-                                <TableHead key={column.name} className="whitespace-nowrap min-w-[120px]">{column.name}</TableHead>
-                              ))
-                            )}
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {tableData.map((row, index) => (
-                            <TableRow key={index}>
-                              {apiColumns.length > 0 ? (
-                                apiColumns.map((columnName, columnIndex) => (
-                                  <TableCell key={columnName} className="whitespace-nowrap min-w-[120px]">
-                                    {formatValue(Array.isArray(row) ? row[columnIndex] : row[columnName])}
-                                  </TableCell>
-                                ))
-                              ) : (
-                                selectedTable.columns.map((column, columnIndex) => (
-                                  <TableCell key={column.name} className="whitespace-nowrap min-w-[120px]">
-                                    {formatValue(Array.isArray(row) ? row[columnIndex] : row[column.name])}
-                                  </TableCell>
-                                ))
-                              )}
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    ) : (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>No data available for this {tableSingular}</p>
-                      </div>
-                    )}
                     </div>
-                  </ScrollArea>
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="stats" className="mt-4">

@@ -104,7 +104,25 @@ const mockChartData = {
   ],
 }
 
-const chartColors = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#84cc16"]
+const chartColors = [
+  "#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#84cc16",
+  "#f97316", "#ec4899", "#6366f1", "#06b6d4", "#14b8a6", "#a855f7", "#eab308",
+  "#f43f5e", "#8b5cf6", "#22c55e", "#0ea5e9", "#f59e0b", "#ef4444", "#6b7280",
+  "#64748b", "#78716c", "#52525b", "#374151", "#1f2937", "#111827", "#0f172a",
+  "#7c2d12", "#92400e", "#b45309", "#d97706", "#f59e0b", "#fbbf24", "#fcd34d"
+]
+
+// Function to generate additional colors dynamically if needed
+const generateColor = (index: number): string => {
+  if (index < chartColors.length) {
+    return chartColors[index]
+  }
+  // Generate HSL colors with good saturation and lightness for visibility
+  const hue = (index * 137.508) % 360 // Golden angle approximation for good distribution
+  const saturation = 65 + (index % 4) * 10 // 65-95% saturation
+  const lightness = 45 + (index % 3) * 15 // 45-75% lightness
+  return `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`
+}
 
 export function DashboardVisualization({ database }: DashboardVisualizationProps) {
   // State for dashboards and charts
@@ -664,11 +682,16 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
 
       case "pie":
       case "donut":
+        // Ensure we only show top 10 values for pie/donut charts
+        const topData = chart.data
+          .sort((a, b) => (b.value || 0) - (a.value || 0))
+          .slice(0, 10)
+        
         return (
           <ResponsiveContainer {...commonProps}>
             <PieChart>
               <Pie
-                data={chart.data}
+                data={topData}
                 cx="50%"
                 cy="50%"
                 labelLine={false}
@@ -679,10 +702,10 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                 dataKey="value" // Always use "value" for pie/donut charts
                 nameKey="name"  // Always use "name" for pie/donut charts
               >
-                {chart.data.map((entry, index) => (
+                {topData.map((entry, index) => (
                   <Cell 
                     key={`cell-${index}`} 
-                    fill={getSeriesColor(entry.name, entry.color || chartColors[index % chartColors.length])} 
+                    fill={getSeriesColor(entry.name, entry.color || generateColor(index))} 
                   />
                 ))}
               </Pie>
@@ -1285,40 +1308,46 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
 
     // For pie/donut charts, ensure the data has the correct format
     if (chartType === 'pie' || chartType === 'donut') {
+      let normalizedData = [];
+      
       // Check if data already has name/value structure (from MongoDB aggregation)
       if (data.length > 0 && data[0].hasOwnProperty('name') && data[0].hasOwnProperty('value')) {
         console.log("Data already in correct pie/donut format");
-        return data.map(item => ({
+        normalizedData = data.map(item => ({
           name: String(item.name || item._id || 'Unknown'),
           value: Number(item.value || 0)
         }));
+      } else {
+        // If data doesn't have name/value, try to convert it
+        // This might happen with SQL results where columns are differently named
+        const firstItem = data[0];
+        const keys = Object.keys(firstItem);
+        
+        // Try to find name and value columns
+        let nameKey = keys.find(key => 
+          key.toLowerCase().includes('name') || 
+          key.toLowerCase().includes('label') || 
+          key.toLowerCase().includes('category')
+        ) || keys[0]; // Use first key as fallback
+        
+        let valueKey = keys.find(key => 
+          key.toLowerCase().includes('value') || 
+          key.toLowerCase().includes('count') || 
+          key.toLowerCase().includes('total') ||
+          key.toLowerCase().includes('amount')
+        ) || keys[1] || keys[0]; // Use second key or first as fallback
+        
+        console.log(`Converting data using nameKey: ${nameKey}, valueKey: ${valueKey}`);
+        
+        normalizedData = data.map(item => ({
+          name: String(item[nameKey] || 'Unknown'),
+          value: Number(item[valueKey] || 0)
+        }));
       }
       
-      // If data doesn't have name/value, try to convert it
-      // This might happen with SQL results where columns are differently named
-      const firstItem = data[0];
-      const keys = Object.keys(firstItem);
-      
-      // Try to find name and value columns
-      let nameKey = keys.find(key => 
-        key.toLowerCase().includes('name') || 
-        key.toLowerCase().includes('label') || 
-        key.toLowerCase().includes('category')
-      ) || keys[0]; // Use first key as fallback
-      
-      let valueKey = keys.find(key => 
-        key.toLowerCase().includes('value') || 
-        key.toLowerCase().includes('count') || 
-        key.toLowerCase().includes('total') ||
-        key.toLowerCase().includes('amount')
-      ) || keys[1] || keys[0]; // Use second key or first as fallback
-      
-      console.log(`Converting data using nameKey: ${nameKey}, valueKey: ${valueKey}`);
-      
-      return data.map(item => ({
-        name: String(item[nameKey] || 'Unknown'),
-        value: Number(item[valueKey] || 0)
-      }));
+      // Sort by value descending and take top 10
+      normalizedData.sort((a, b) => b.value - a.value);
+      return normalizedData.slice(0, 10);
     }
 
     // For other chart types, return data as-is
@@ -1544,12 +1573,12 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   Add Chart
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-2xl">
+              <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Create New Chart</DialogTitle>
                 </DialogHeader>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-4 p-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="chart-title">Chart Title</Label>
                       <Input
@@ -1557,6 +1586,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                         placeholder="My Chart"
                         value={newChart.title}
                         onChange={(e) => setNewChart((prev) => ({ ...prev, title: e.target.value }))}
+                        className="w-full"
                       />
                     </div>
                     <div className="space-y-2">
@@ -1565,7 +1595,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                         value={newChart.type}
                         onValueChange={(value) => setNewChart((prev) => ({ ...prev, type: value as any }))}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="w-full">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1577,7 +1607,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                         </SelectContent>
                       </Select>
                       {newChart.type && (
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-muted-foreground break-words">
                           {getChartTypeDescription(newChart.type as keyof typeof chartTypes)}
                         </p>
                       )}
@@ -1588,13 +1618,13 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   <div className="space-y-2">
                     <Label htmlFor="chart-database">Database</Label>
                     <Select value={selectedChartDatabase} onValueChange={setSelectedChartDatabase}>
-                      <SelectTrigger>
+                      <SelectTrigger className="w-full">
                         <SelectValue placeholder="Select database" />
                       </SelectTrigger>
                       <SelectContent>
                         {availableDatabases.map((db) => (
                           <SelectItem key={db.id} value={db.id.toString()}>
-                            {db.name} ({db.type})
+                            <span className="truncate">{db.name} ({db.type})</span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1609,13 +1639,13 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                       onValueChange={setSelectedTable}
                       disabled={!selectedChartDatabase || loadingTables}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="w-full">
                         <SelectValue placeholder={loadingTables ? "Loading tables..." : "Select table"} />
                       </SelectTrigger>
                       <SelectContent>
                         {availableTables.map((table) => (
                           <SelectItem key={table.name} value={table.name}>
-                            {table.name} ({(table.rowCount || 0).toLocaleString()} rows)
+                            <span className="truncate">{table.name} ({(table.rowCount || 0).toLocaleString()} rows)</span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1623,7 +1653,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   </div>
 
                   {/* Column Selection */}
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="x-axis">
                         {getAxisLabel('x', newChart.type as keyof typeof chartTypes)}
@@ -1633,13 +1663,13 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                         onValueChange={setSelectedXColumn}
                         disabled={!selectedTable}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="w-full">
                           <SelectValue placeholder={getAxisPlaceholder('x', newChart.type as keyof typeof chartTypes)} />
                         </SelectTrigger>
                         <SelectContent>
                           {getCompatibleColumns('x').map((column) => (
                             <SelectItem key={column.name} value={column.name}>
-                              {column.name} ({column.type})
+                              <span className="truncate">{column.name} ({column.type})</span>
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -1655,13 +1685,13 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                           onValueChange={setSelectedYColumn}
                           disabled={!selectedTable}
                         >
-                          <SelectTrigger>
+                          <SelectTrigger className="w-full">
                             <SelectValue placeholder={getAxisPlaceholder('y', newChart.type as keyof typeof chartTypes)} />
                           </SelectTrigger>
                           <SelectContent>
                             {getCompatibleColumns('y').map((column) => (
                               <SelectItem key={column.name} value={column.name}>
-                                {column.name} ({column.type})
+                                <span className="truncate">{column.name} ({column.type})</span>
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1674,7 +1704,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   {generateQuery() && (
                     <div className="space-y-2">
                       <Label>Generated Query</Label>
-                      <div className="p-3 bg-muted rounded-md font-mono text-sm">
+                      <div className="p-3 bg-muted rounded-md font-mono text-sm overflow-x-auto break-all">
                         {generateQuery()}
                       </div>
                     </div>
@@ -1682,11 +1712,11 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
 
                   <div className="space-y-2">
                     <Label>Chart Color</Label>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {chartColors.map((color) => (
                         <button
                           key={color}
-                          className={`w-8 h-8 rounded-full border-2 ${
+                          className={`w-8 h-8 rounded-full border-2 flex-shrink-0 ${
                             newChart.color === color ? "border-foreground" : "border-transparent"
                           }`}
                           style={{ backgroundColor: color }}
@@ -1695,8 +1725,8 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                       ))}
                     </div>
                   </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setShowCreateChart(false)}>
+                  <div className="flex flex-col sm:flex-row justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowCreateChart(false)} className="w-full sm:w-auto">
                       Cancel
                     </Button>
                     <Button 
@@ -1707,6 +1737,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                         !selectedXColumn || 
                         (chartTypes[newChart.type as keyof typeof chartTypes]?.noYAxis ? false : !selectedYColumn)
                       }
+                      className="w-full sm:w-auto"
                     >
                       Create Chart
                     </Button>
@@ -1719,7 +1750,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           {/* Edit Chart Dialog */}
           {editingChart && (
             <Dialog open={showEditChart} onOpenChange={setShowEditChart}>
-              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2">
                     <Palette className="h-5 w-5" />
