@@ -346,18 +346,55 @@ class DatabaseManager:
                     if match:
                         collection = match.group('collection')
                         operation = match.group('operation')
-                        args_str = match.group('args')
+                        args_str = match.group('args').strip()
 
                         # The arguments for aggregate are a list, for find it's a dict
                         if operation == "aggregate":
-                            # The argument is a pipeline (list of dicts)
-                            # Use demjson3 to handle the JS-like syntax
-                            import demjson3
-                            pipeline = demjson3.decode(f"[{args_str}]")
+                            # Parse the aggregation pipeline
+                            # Remove the outer brackets if present
+                            if args_str.startswith('[') and args_str.endswith(']'):
+                                pipeline_str = args_str[1:-1]
+                            else:
+                                pipeline_str = args_str
+                            
+                            # Convert JavaScript-like syntax to Python/JSON
+                            # Replace MongoDB operators and field references
+                            pipeline_str = pipeline_str.replace('$sum:', '"$sum":')
+                            pipeline_str = pipeline_str.replace('$group:', '"$group":')
+                            pipeline_str = pipeline_str.replace('$project:', '"$project":')
+                            pipeline_str = pipeline_str.replace('$sort:', '"$sort":')
+                            pipeline_str = pipeline_str.replace('$limit:', '"$limit":')
+                            pipeline_str = pipeline_str.replace('$match:', '"$match":')
+                            pipeline_str = pipeline_str.replace('_id:', '"_id":')
+                            pipeline_str = pipeline_str.replace('value:', '"value":')
+                            pipeline_str = pipeline_str.replace('name:', '"name":')
+                            
+                            # Parse the pipeline as JSON
+                            import json
+                            try:
+                                pipeline = json.loads(f"[{pipeline_str}]")
+                            except json.JSONDecodeError:
+                                # Fallback: try to manually parse common aggregation patterns
+                                if "$group" in pipeline_str and "$project" in pipeline_str:
+                                    # Extract the field being grouped by
+                                    group_match = re.search(r'\{\s*"_id":\s*"\$(\w+)",\s*"value":\s*\{\s*"\$sum":\s*1\s*\}\s*\}', pipeline_str)
+                                    if group_match:
+                                        field = group_match.group(1)
+                                        pipeline = [
+                                            { "$group": { "_id": f"${field}", "value": { "$sum": 1 } } },
+                                            { "$project": { "name": "$_id", "value": 1, "_id": 0 } },
+                                            { "$sort": { "value": -1 } },
+                                            { "$limit": 10 }
+                                        ]
+                                    else:
+                                        raise ValueError("Could not parse aggregation pipeline")
+                                else:
+                                    raise ValueError("Could not parse aggregation pipeline")
+                            
                             query_dict = {
                                 "collection": collection,
                                 "operation": "aggregate",
-                                "args": [pipeline]
+                                "pipeline": pipeline
                             }
                         elif operation == "find":
                             # Arguments are (filter, projection)
@@ -372,7 +409,8 @@ class DatabaseManager:
                             query_dict = {
                                 "collection": collection,
                                 "operation": "find",
-                                "args": [filter_arg, projection_arg]
+                                "filter": filter_arg,
+                                "projection": projection_arg
                             }
                         else:
                             raise ValueError(f"Unsupported MongoDB operation: {operation}")

@@ -676,20 +676,20 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                 outerRadius={80}
                 innerRadius={chart.type === 'donut' ? 40 : 0}
                 fill="#8884d8"
-                dataKey={yAxisKey} // Should be "value"
-                nameKey={xAxisKey} // Should be "name"
+                dataKey="value" // Always use "value" for pie/donut charts
+                nameKey="name"  // Always use "name" for pie/donut charts
               >
                 {chart.data.map((entry, index) => (
                   <Cell 
                     key={`cell-${index}`} 
-                    fill={getSeriesColor(entry[xAxisKey], entry.color || chartColors[index % chartColors.length])} 
+                    fill={getSeriesColor(entry.name, entry.color || chartColors[index % chartColors.length])} 
                   />
                 ))}
               </Pie>
               <Tooltip 
-                formatter={(value, name) => [value, getColumnDisplayName(name as string)]}
+                formatter={(value, name) => [value, name]}
               />
-               <Legend formatter={(value) => getColumnDisplayName(value)} />
+               <Legend formatter={(value) => value} />
             </PieChart>
           </ResponsiveContainer>
         )
@@ -1281,10 +1281,48 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
   const normalizeChartData = (data: any[], chartType: string, dbType: string): any[] => {
     if (!data || data.length === 0) return [];
 
-    // For pie/donut charts, the queries are already aliased to return `name` and `value`.
-    // For other chart types, we use the raw column names stored in xAxis/yAxis.
-    // Therefore, no data transformation is needed here at the moment.
-    // This function remains as a placeholder for any future complex transformations.
+    console.log("Normalizing chart data:", { data, chartType, dbType });
+
+    // For pie/donut charts, ensure the data has the correct format
+    if (chartType === 'pie' || chartType === 'donut') {
+      // Check if data already has name/value structure (from MongoDB aggregation)
+      if (data.length > 0 && data[0].hasOwnProperty('name') && data[0].hasOwnProperty('value')) {
+        console.log("Data already in correct pie/donut format");
+        return data.map(item => ({
+          name: String(item.name || item._id || 'Unknown'),
+          value: Number(item.value || 0)
+        }));
+      }
+      
+      // If data doesn't have name/value, try to convert it
+      // This might happen with SQL results where columns are differently named
+      const firstItem = data[0];
+      const keys = Object.keys(firstItem);
+      
+      // Try to find name and value columns
+      let nameKey = keys.find(key => 
+        key.toLowerCase().includes('name') || 
+        key.toLowerCase().includes('label') || 
+        key.toLowerCase().includes('category')
+      ) || keys[0]; // Use first key as fallback
+      
+      let valueKey = keys.find(key => 
+        key.toLowerCase().includes('value') || 
+        key.toLowerCase().includes('count') || 
+        key.toLowerCase().includes('total') ||
+        key.toLowerCase().includes('amount')
+      ) || keys[1] || keys[0]; // Use second key or first as fallback
+      
+      console.log(`Converting data using nameKey: ${nameKey}, valueKey: ${valueKey}`);
+      
+      return data.map(item => ({
+        name: String(item[nameKey] || 'Unknown'),
+        value: Number(item[valueKey] || 0)
+      }));
+    }
+
+    // For other chart types, return data as-is
+    // (they use the raw column names stored in xAxis/yAxis)
     return data;
   }
 
