@@ -27,7 +27,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts"
-import { BarChart3, LineChartIcon, PieChartIcon, TrendingUp, Plus, Settings, Save, Trash2, Grid3X3, Edit, Move, Maximize, Minimize, Palette, Loader2 } from "lucide-react"
+import { BarChart3, LineChartIcon, PieChartIcon, TrendingUp, Plus, Settings, Save, Trash2, Grid3X3, Edit, Move, Maximize, Minimize, Palette, Loader2, ScatterChart, AreaChartIcon, Map } from "lucide-react"
 import type { DatabaseConfig, TableInfo, ColumnInfo } from "@/lib/database"
 import { apiClient } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
@@ -487,6 +487,31 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     return descriptions[chartType] || "Select a chart type to see description."
   }
 
+  // Get chart icon based on chart type
+  const getChartIcon = (chartType: string) => {
+    const iconProps = { className: "h-4 w-4" }
+    
+    switch (chartType) {
+      case 'bar':
+        return <BarChart3 {...iconProps} />
+      case 'line':
+        return <LineChartIcon {...iconProps} />
+      case 'area':
+        return <AreaChartIcon {...iconProps} />
+      case 'pie':
+      case 'donut':
+        return <PieChartIcon {...iconProps} />
+      case 'scatter':
+        return <ScatterChart {...iconProps} />
+      case 'histogram':
+        return <BarChart3 {...iconProps} />
+      case 'heatmap':
+        return <Map {...iconProps} />
+      default:
+        return <BarChart3 {...iconProps} />
+    }
+  }
+
   // Get dynamic axis labels
   const getAxisLabel = (axis: 'x' | 'y', chartType: keyof typeof chartTypes) => {
     if (axis === 'x') {
@@ -732,6 +757,10 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
 
   const createChart = async () => {
     if (!selectedDashboard || !newChart.title || !newChart.type) return
+
+    // Check if the current chart type needs Y axis
+    const chartConfig = chartTypes[newChart.type as keyof typeof chartTypes]
+    const needsYAxis = !chartConfig?.noYAxis
 
     // Find the selected database to determine its type
     let selectedDb = availableDatabases.find(db => db.id.toString() === selectedChartDatabase)

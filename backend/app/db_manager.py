@@ -26,6 +26,39 @@ class DatabaseManager:
         self.cipher_key = base64.urlsafe_b64encode(key_bytes)
         self.cipher = Fernet(self.cipher_key)
     
+    def sanitize_data_for_json(self, data):
+        """Sanitize data to ensure it can be JSON serialized"""
+        if isinstance(data, dict):
+            return {key: self.sanitize_data_for_json(value) for key, value in data.items()}
+        elif isinstance(data, list):
+            return [self.sanitize_data_for_json(item) for item in data]
+        elif isinstance(data, bytes):
+            # Convert bytes to string, handling encoding errors
+            try:
+                return data.decode('utf-8')
+            except UnicodeDecodeError:
+                # If it can't be decoded as UTF-8, represent as base64
+                import base64
+                return f"<binary:{base64.b64encode(data).decode('ascii')}>"
+        elif isinstance(data, str):
+            # Ensure string is valid UTF-8
+            try:
+                data.encode('utf-8')
+                return data
+            except UnicodeEncodeError:
+                # Replace problematic characters
+                return data.encode('utf-8', errors='replace').decode('utf-8')
+        elif data is None:
+            return None
+        else:
+            # For other types (int, float, bool), try to convert to string if needed
+            try:
+                import json
+                json.dumps(data)  # Test if it can be JSON serialized
+                return data
+            except (TypeError, ValueError):
+                return str(data)
+    
     def encrypt_password(self, password: str) -> str:
         return self.cipher.encrypt(password.encode()).decode()
     
@@ -387,6 +420,9 @@ class DatabaseManager:
                         # Fallback for older SQLAlchemy versions
                         data = [dict(zip(result.keys(), row)) for row in rows]
                     
+                    # Sanitize data to ensure JSON serialization
+                    data = self.sanitize_data_for_json(data)
+                    
                     row_count = len(data)
                 else:
                     data = []
@@ -437,9 +473,12 @@ class DatabaseManager:
                 columns = result.keys()
                 rows = [list(row) for row in result.fetchall()]
                 
+                # Sanitize data to ensure JSON serialization
+                sanitized_rows = self.sanitize_data_for_json(rows)
+                
                 return {
                     "columns": list(columns),
-                    "rows": rows,
+                    "rows": sanitized_rows,
                     "total_count": total_count,
                     "limit": limit,
                     "offset": offset

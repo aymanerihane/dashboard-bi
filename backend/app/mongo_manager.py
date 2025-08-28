@@ -250,6 +250,13 @@ class MongoDBManager:
                 serialized[key] = str(value)
             elif isinstance(value, datetime.datetime):
                 serialized[key] = value.isoformat()
+            elif isinstance(value, bytes):
+                # Handle binary data
+                try:
+                    serialized[key] = value.decode('utf-8')
+                except UnicodeDecodeError:
+                    import base64
+                    serialized[key] = f"<binary:{base64.b64encode(value).decode('ascii')}>"
             elif isinstance(value, dict):
                 serialized[key] = self._serialize_document(value)
             elif isinstance(value, list):
@@ -257,11 +264,17 @@ class MongoDBManager:
                     self._serialize_document(item) if isinstance(item, dict) 
                     else str(item) if isinstance(item, ObjectId)
                     else item.isoformat() if isinstance(item, datetime.datetime)
-                    else item 
+                    else (item.decode('utf-8') if isinstance(item, bytes) else item)
                     for item in value
                 ]
             else:
-                serialized[key] = value
+                # Handle any other types that might cause serialization issues
+                try:
+                    import json
+                    json.dumps(value)  # Test if it can be JSON serialized
+                    serialized[key] = value
+                except (TypeError, ValueError):
+                    serialized[key] = str(value)
         return serialized
     
     async def execute_query(self, connection_data: dict, query: Dict[str, Any], limit: int = 1000) -> Dict[str, Any]:
