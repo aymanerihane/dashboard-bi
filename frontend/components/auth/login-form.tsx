@@ -111,14 +111,6 @@ export function LoginForm({ onToggleMode }: LoginFormProps) {
               Sign up
             </button>
           </div>
-
-          <div className="text-center text-xs text-muted-foreground mt-4 p-3 bg-muted rounded-lg">
-            <strong>Demo Credentials:</strong>
-            <br />
-            Admin: admin@example.com / admin123
-            <br />
-            User: user@example.com / user123
-          </div>
         </form>
       </CardContent>
     </Card>

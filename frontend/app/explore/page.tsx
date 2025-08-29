@@ -29,10 +29,15 @@ interface ColumnInfo {
   type: string;
 }
 
+interface DatabaseWithCollections {
+  name: string;
+  collections: TableInfo[];
+}
+
 interface ExplorationData {
   type: 'sql' | 'nosql';
   tables?: TableInfo[];
-  collections?: TableInfo[] | Array<{name: string, collections: TableInfo[]}>;
+  collections?: TableInfo[] | DatabaseWithCollections[];
   columns?: ColumnInfo[];
   data?: any[];
   row_count?: number;
@@ -166,18 +171,20 @@ export default function ExplorePage() {
     }
 
     if (explorationData.type === 'nosql' && explorationData.collections) {
-      if (Array.isArray(explorationData.collections)) {
+      // Check if it's an array of databases with collections
+      if (Array.isArray(explorationData.collections) && explorationData.collections.length > 0 && 'collections' in explorationData.collections[0]) {
         // Multiple databases
+        const databases = explorationData.collections as DatabaseWithCollections[];
         return (
           <div className="space-y-6">
-            {explorationData.collections.map((database: any) => (
+            {databases.map((database) => (
               <div key={database.name}>
                 <h3 className="text-lg font-semibold mb-3 flex items-center">
                   <Database className="h-5 w-5 mr-2" />
                   {database.name}
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {database.collections.map((collection: any) => (
+                  {database.collections.map((collection) => (
                     <Card key={collection.name} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => exploreTable(collection.name)}>
                       <CardContent className="p-4">
                         <div className="flex items-center space-x-2">
@@ -194,10 +201,11 @@ export default function ExplorePage() {
           </div>
         );
       } else {
-        // Single database
+        // Single database - array of collections
+        const collections = explorationData.collections as TableInfo[];
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {explorationData.collections.map((collection: any) => (
+            {collections.map((collection) => (
               <Card key={collection.name} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => exploreTable(collection.name)}>
                 <CardContent className="p-4">
                   <div className="flex items-center space-x-2">

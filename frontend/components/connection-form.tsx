@@ -428,7 +428,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
                     MongoDB Atlas
                   </div>
                 </SelectItem>
-                <SelectItem value="redis">
+                {/* <SelectItem value="redis">
                   <div className="flex items-center gap-2">
                     <Database className="h-4 w-4" />
                     Redis
@@ -439,7 +439,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
                     <Database className="h-4 w-4" />
                     Cassandra
                   </div>
-                </SelectItem>
+                </SelectItem> */}
                 <SelectItem value="sqlite">
                   <div className="flex items-center gap-2">
                     <HardDrive className="h-4 w-4" />

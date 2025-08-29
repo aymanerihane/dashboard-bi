@@ -51,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
-      const response = await apiClient.login({ email, password })
+      const response = await apiClient.login(email, password)
       
       apiClient.setToken(response.token)
       setUser(response.user)
@@ -64,7 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = async (name: string, email: string, password: string) => {
     try {
-      await apiClient.register({ name, email, password })
+      await apiClient.register(name, email, password)
       // After successful registration, user should login
       router.push('/login')
     } catch (error) {

@@ -19,26 +19,6 @@ services:
     networks:
       - dashboard-network
 
-  # MongoDB database with test data
-  mongodb:
-    image: mongo:7
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-admin}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
-      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-testdb}
-    volumes:
-      - mongo_data:/data/db
-      - ./mongo-init:/docker-entrypoint-initdb.d
-    ports:
-      - "${MONGO_PORT:-27017}:27017"
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - dashboard-network
-
   backend:
     build: 
       context: ./backend
@@ -72,8 +52,6 @@ services:
       - dashboard-network
     depends_on:
       postgres:
-        condition: service_healthy
-      mongodb:
         condition: service_healthy
 
   frontend:

@@ -317,11 +317,18 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         setDragMode(!dragMode)
         setSelectedChart(null)
       }
+      if (event.key === 'f' && event.ctrlKey && selectedChart && selectedDashboard) {
+        event.preventDefault()
+        const chart = selectedDashboard.charts.find(c => c.id === selectedChart)
+        if (chart) {
+          setShowFullChart(chart)
+        }
+      }
     }
 
     window.addEventListener('keydown', handleKeyPress)
     return () => window.removeEventListener('keydown', handleKeyPress)
-  }, [dragMode, showFullChart])
+  }, [dragMode, showFullChart, selectedChart])
 
   const loadDatabases = async () => {
     try {
@@ -573,7 +580,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     }
   }
 
-  const renderChart = (chart: ChartConfig) => {
+  const renderChart = (chart: ChartConfig, isFullScreen = false) => {
     // Check if data exists and is valid
     if (!chart.data || chart.data.length === 0) {
       return (
@@ -601,7 +608,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
 
     const commonProps = {
       width: "100%",
-      height: 300,
+      height: isFullScreen ? "calc(100vh - 96px)" : 300,
       data: chart.data,
     }
 
@@ -2220,7 +2227,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                                       setShowFullChart(chart)
                                     }}
                                     className="h-6 w-6 p-0 text-muted-foreground hover:text-green-500"
-                                    title="Full View"
+                                    title="Full View (Ctrl+F)"
                                   >
                                     <Maximize className="h-3 w-3" />
                                   </Button>
@@ -2278,18 +2285,29 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
 
       {/* Full Chart View Dialog */}
       <Dialog open={showFullChart !== null} onOpenChange={() => setShowFullChart(null)}>
-        <DialogContent className="max-w-[100vw] max-h-[100vh] w-[100vw] h-[100vh] p-0 m-0 overflow-hidden">
-          <DialogHeader className="p-6 pb-2">
-            <DialogTitle className="flex items-center gap-2">
+        <DialogContent className="max-w-[100vw] max-h-[100vh] w-[100vw] h-[100vh] p-0 m-0 overflow-hidden border-0 rounded-none bg-background">
+          {/* Floating header with chart title and close button */}
+          <div className="absolute top-4 right-4 z-50 flex items-center gap-2 bg-background/95 backdrop-blur-sm rounded-lg p-3 border shadow-lg">
+            <div className="flex items-center gap-2 text-sm font-medium">
               {showFullChart && getChartIcon(showFullChart.type)}
-              {showFullChart?.title}
-            </DialogTitle>
-            <DialogDescription>
-              Full screen view of the chart
-            </DialogDescription>
-          </DialogHeader>
-          <div className="w-full h-[calc(100vh-120px)] p-6 pt-2">
-            {showFullChart && renderChart(showFullChart)}
+              <span className="max-w-[200px] truncate">{showFullChart?.title}</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowFullChart(null)}
+              className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground transition-colors"
+              title="Exit Full Screen (ESC)"
+            >
+              <Minimize className="h-3 w-3" />
+            </Button>
+          </div>
+          
+          {/* Chart container with full viewport usage */}
+          <div className="w-full h-full flex items-center justify-center p-6 pt-12">
+            <div className="w-full h-full max-h-[calc(100vh-96px)]">
+              {showFullChart && renderChart(showFullChart, true)}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

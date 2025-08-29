@@ -56,7 +56,7 @@ export default function DatabaseDashboard() {
   const handleConnect = async (connection: DatabaseConfig) => {
     try {
       // Use the password confirmation flow (don't set loading state yet)
-      requestConnection(connection, async (password: string, shouldSavePassword: boolean) => {
+      requestConnection(connection, async (password: string, savePassword?: boolean) => {
         try {
           setConnectingToDatabase(true) // Set loading only when starting actual connection
           
@@ -72,9 +72,8 @@ export default function DatabaseDashboard() {
             }
             
             // Save password if requested
-            if (shouldSavePassword) {
-              savePasswordToStorage(connection.id.toString(), password)
-            }
+            if (savePassword) {
+         }
             
             toast({
               title: "Success",
