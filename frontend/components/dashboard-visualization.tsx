@@ -448,8 +448,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     pie: { label: "Pie Chart", requiresCategoricalX: true, noYAxis: true },
     donut: { label: "Donut Chart", requiresCategoricalX: true, noYAxis: true },
     scatter: { label: "Scatter Plot", requiresNumericY: true, requiresNumericX: true },
-    histogram: { label: "Histogram", requiresNumericX: true, noYAxis: true },
-    heatmap: { label: "Heatmap", requiresNumericY: true, requiresCategoricalX: true }
+    histogram: { label: "Histogram", requiresNumericX: true, noYAxis: true }
   }
 
   // Column type detection
