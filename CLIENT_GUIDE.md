@@ -23,8 +23,8 @@ Dashboard BI is a powerful, user-friendly platform that allows you to connect to
 ### 1. Access & Login
 
 **Demo Credentials:**
-- **Administrator**: admin@example.com / admin123
-- **Regular User**: user@example.com / user123
+- **User 1**: test@gmail.com / 123456
+- **User 2**: admin@example.com / admin123
 
 ### 2. Dashboard Overview
 
