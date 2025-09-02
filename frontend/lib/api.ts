@@ -237,6 +237,38 @@ class ApiClient {
     })
   }
 
+  async uploadSqliteFile(file: File) {
+    const formData = new FormData()
+    formData.append("file", file)
+
+    const url = `${this.baseURL}/api/databases/upload-sqlite`
+    const headers: Record<string, string> = {}
+
+    if (this.token) {
+      headers.Authorization = `Bearer ${this.token}`
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: "Upload failed" }))
+      throw new Error(error.detail || error.message || "File upload failed")
+    }
+
+    return response.json() as Promise<{
+      success: boolean
+      message: string
+      file_path: string
+      unique_filename: string
+      original_filename: string
+      database_name: string
+    }>
+  }
+
   // Database table endpoints
   async getTables(connectionId: number) {
     return this.request<Array<{

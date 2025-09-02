@@ -33,6 +33,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
     filename: initialConfig?.filename || "",
     connectionString: initialConfig?.connectionString || "",
     cluster: initialConfig?.cluster || "",
+    file_path: "", // For SQLite backend file path
   })
 
   const [testing, setTesting] = useState(false)
@@ -137,15 +138,37 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
     setTempPassword("")
   }
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file && file.name.endsWith('.db')) {
-      setFileContent(file)
-      setConfig(prev => ({
-        ...prev,
-        filename: file.name,
-        database: file.name.replace('.db', '')
-      }))
+      try {
+        // Upload file to backend
+        const uploadResult = await apiClient.uploadSqliteFile(file)
+        
+        setFileContent(file)
+        setConfig(prev => ({
+          ...prev,
+          filename: uploadResult.unique_filename, // Use the unique filename from backend
+          database: uploadResult.database_name
+        }))
+        
+        // Store the backend file path for the connection
+        setConfig(prev => ({
+          ...prev,
+          file_path: uploadResult.file_path
+        }))
+        
+        console.log('File uploaded successfully:', uploadResult)
+      } catch (error) {
+        console.error('File upload failed:', error)
+        // Fallback to local file handling if upload fails
+        setFileContent(file)
+        setConfig(prev => ({
+          ...prev,
+          filename: file.name, 
+          database: file.name.replace('.db', '')
+        }))
+      }
     }
   }
 
@@ -157,19 +180,27 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
       let result: { success: boolean; message: string; latency?: number; error?: string }
 
       if (config.type === "sqlite") {
-        // SQLite validation - check if file is uploaded or path provided
-        if (fileContent) {
+        // SQLite validation - test using backend file path if available
+        if (config.file_path) {
+          // Use the backend file path for testing
+          result = await apiClient.testConnectionStandalone({
+            type: "sqlite",
+            file_path: config.file_path,
+            database: config.database || "test"
+          })
+        } else if (fileContent && config.database) {
           result = {
             success: true,
-            message: "SQLite file uploaded successfully!",
+            message: "SQLite file uploaded successfully! Please save the connection to test it.",
             latency: 1
           }
         } else if (config.filename && config.database) {
-          result = {
-            success: true,
-            message: "SQLite configuration validated successfully!",
-            latency: 1
-          }
+          // Fallback to local file path testing
+          result = await apiClient.testConnectionStandalone({
+            type: "sqlite",
+            file_path: config.filename,
+            database: config.database
+          })
         } else {
           result = {
             success: false,
@@ -315,7 +346,7 @@ export function ConnectionForm({ onSave, onCancel, initialConfig, testOnly = fal
       username: config.type !== "sqlite" && config.type !== "mongodb-atlas" && config.type !== "redis" ? config.username : undefined,
       password: passwordToSave, // Include the password (extracted for Atlas)
       filename: config.type === "sqlite" ? config.filename : undefined, // Legacy field
-      file_path: config.type === "sqlite" ? (config.filename || config.database) : undefined, // New field for backend
+      file_path: config.type === "sqlite" ? (config.file_path || config.filename || config.database) : undefined, // New field for backend
       connectionString: config.type === "mongodb-atlas" ? config.connectionString : undefined, // Legacy field
       connection_string: config.type === "mongodb-atlas" ? config.connectionString : undefined, // New field for backend
       cluster: config.cluster,

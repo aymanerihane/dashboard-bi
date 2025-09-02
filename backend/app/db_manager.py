@@ -86,6 +86,11 @@ class DatabaseManager:
             file_path = connection_data.get('file_path') or connection_data.get('database_name')
             if not file_path:
                 raise ValueError("SQLite file path is required")
+            
+            # Convert relative paths to absolute paths
+            if not os.path.isabs(file_path):
+                file_path = os.path.abspath(file_path)
+            
             return f"sqlite:///{file_path}"
         
         # Map localhost to Docker service names when running in container

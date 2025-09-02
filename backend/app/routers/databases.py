@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
 from pydantic import BaseModel
+import os
+import uuid
+import shutil
 
 from app.database import get_db, DatabaseConnection as DBConnection, User
 from app.schemas import DatabaseConnectionCreate, DatabaseConnectionUpdate, DatabaseConnection, ConnectionTestResult, TableInfo
@@ -419,3 +422,50 @@ async def get_table_data(
         return await db_manager.get_table_data(connection_data, table_name, limit, offset)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching table data: {str(e)}")
+
+@router.post("/upload-sqlite")
+async def upload_sqlite_file(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """Upload SQLite file to backend data directory"""
+    
+    # Validate file extension
+    if not file.filename or not file.filename.endswith(('.db', '.sqlite', '.sqlite3')):
+        raise HTTPException(
+            status_code=400, 
+            detail="Only SQLite files (.db, .sqlite, .sqlite3) are allowed"
+        )
+    
+    # Generate unique filename to avoid conflicts
+    file_extension = os.path.splitext(file.filename)[1]
+    unique_filename = f"{uuid.uuid4()}{file_extension}"
+    
+    # Create data directory path
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    
+    file_path = os.path.join(data_dir, unique_filename)
+    
+    try:
+        # Save the uploaded file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Extract database name (original filename without extension)
+        database_name = os.path.splitext(file.filename)[0]
+        
+        return {
+            "success": True,
+            "message": "File uploaded successfully",
+            "file_path": file_path,
+            "unique_filename": unique_filename,
+            "original_filename": file.filename,
+            "database_name": database_name
+        }
+    
+    except Exception as e:
+        # Clean up file if upload failed
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
