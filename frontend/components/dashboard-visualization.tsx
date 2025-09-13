@@ -1678,6 +1678,16 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                 <DialogHeader>
                   <DialogTitle>Create New Chart</DialogTitle>
                 </DialogHeader>
+                
+                {/* ABSOLUTE FIRST TEST - This should ALWAYS show */}
+                <div className="p-4 bg-yellow-300 border-4 border-black text-black text-xl font-bold">
+                  🚨 DIALOG IS WORKING! 🚨
+                  <br />
+                  Available Databases: {availableDatabases.length}
+                  <br />
+                  Selected Dashboard: {selectedDashboard ? "YES" : "NO"}
+                </div>
+                
                 <div className="space-y-4 p-1">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -1719,10 +1729,10 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   <div className="space-y-2 p-4 border-2 border-red-500 bg-red-50">
                     <div className="flex items-center justify-between">
                       <Label className="text-lg font-bold text-red-800">ADVANCED MODE TEST</Label>
-                      <Switch
+                      {/* <Switch
                         checked={isAdvancedMode}
                         onCheckedChange={setIsAdvancedMode}
-                      />
+                      /> */}
                     </div>
                     <p className="text-red-700">
                       Current mode: {isAdvancedMode ? "ADVANCED" : "SIMPLE"}
