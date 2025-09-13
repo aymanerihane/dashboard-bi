@@ -1728,10 +1728,12 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   <div className="space-y-2 p-4 border-2 border-red-500 bg-red-50">
                     <div className="flex items-center justify-between">
                       <Label className="text-lg font-bold text-red-800">ADVANCED MODE TEST</Label>
-                      {/* <Switch
+                      <input
+                        type="checkbox"
                         checked={isAdvancedMode}
-                        onCheckedChange={setIsAdvancedMode}
-                      /> */}
+                        onChange={(e) => setIsAdvancedMode(e.target.checked)}
+                        className="w-5 h-5 rounded border border-gray-300 bg-white checked:bg-blue-600 checked:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
                     </div>
                     <p className="text-red-700">
                       Current mode: {isAdvancedMode ? "ADVANCED" : "SIMPLE"}
