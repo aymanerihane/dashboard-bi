@@ -27,7 +27,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts"
-import { BarChart3, LineChartIcon, PieChartIcon, TrendingUp, Plus, Settings, Save, Trash2, Grid3X3, Edit, Move, Maximize, Minimize, Palette, Loader2, ScatterChart, AreaChartIcon, Map } from "lucide-react"
+import { BarChart3, LineChartIcon, PieChartIcon, TrendingUp, Plus, Settings, Save, Trash2, Grid3X3, Edit, Move, Maximize, Minimize, Palette, Loader2, ScatterChart, AreaChartIcon, Map, Code } from "lucide-react"
 import type { DatabaseConfig, TableInfo, ColumnInfo } from "@/lib/database"
 import { apiClient } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
@@ -156,6 +156,10 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
   const [selectedXColumn, setSelectedXColumn] = useState<string>("")
   const [selectedYColumn, setSelectedYColumn] = useState<string>("")
   const [loadingTables, setLoadingTables] = useState(false)
+  const [isAdvancedMode, setIsAdvancedMode] = useState(false)
+  const [customQuery, setCustomQuery] = useState("")
+  const [testingQuery, setTestingQuery] = useState(false)
+  const [queryTestResult, setQueryTestResult] = useState<{ success: boolean; message: string; rowCount?: number } | null>(null)
   const { toast } = useToast()
 
   // Helper function to convert backend chart format to frontend format
@@ -384,6 +388,11 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
   }
 
   const generateQuery = () => {
+    // If in advanced mode, use the custom query
+    if (isAdvancedMode) {
+      return customQuery.trim()
+    }
+    
     if (!selectedTable || !selectedXColumn) return ""
     
     // Find the selected database to determine its type
@@ -785,12 +794,107 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     }
   }
 
+  const handleAdvancedModeToggle = () => {
+    const newMode = !isAdvancedMode
+    setIsAdvancedMode(newMode)
+    setQueryTestResult(null) // Clear any previous test results
+    
+    if (newMode) {
+      // When switching to advanced mode, pre-populate with generated query if available
+      const generatedQuery = generateQuery()
+      if (generatedQuery) {
+        setCustomQuery(generatedQuery)
+      }
+    } else {
+      // When switching to simple mode, clear custom query
+      setCustomQuery("")
+    }
+  }
+
+  const testCustomQuery = async () => {
+    if (!selectedChartDatabase || !customQuery.trim()) {
+      toast({
+        title: "Error",
+        description: "Please select a database and enter a query to test.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setTestingQuery(true)
+    setQueryTestResult(null)
+
+    try {
+      const result = await apiClient.executeQuery(parseInt(selectedChartDatabase), customQuery.trim())
+      
+      if (result.success && result.data) {
+        setQueryTestResult({
+          success: true,
+          message: `Query executed successfully! Retrieved ${result.data.length} row(s).`,
+          rowCount: result.data.length
+        })
+        
+        toast({
+          title: "Query Test Successful",
+          description: `Retrieved ${result.data.length} row(s). Query is ready to use.`,
+        })
+      } else {
+        setQueryTestResult({
+          success: false,
+          message: result.error || "Query failed with unknown error"
+        })
+        
+        toast({
+          title: "Query Test Failed",
+          description: result.error || "Unknown error occurred",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Network or server error"
+      setQueryTestResult({
+        success: false,
+        message: errorMessage
+      })
+      
+      toast({
+        title: "Query Test Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setTestingQuery(false)
+    }
+  }
+
   const createChart = async () => {
     if (!selectedDashboard || !newChart.title || !newChart.type) return
 
-    // Check if the current chart type needs Y axis
-    const chartConfig = chartTypes[newChart.type as keyof typeof chartTypes]
-    const needsYAxis = !chartConfig?.noYAxis
+    // Validation based on mode
+    if (isAdvancedMode) {
+      // In advanced mode, only require database selection and custom query
+      if (!selectedChartDatabase || !customQuery.trim()) {
+        toast({
+          title: "Error",
+          description: "Please select a database and enter a custom query.",
+          variant: "destructive",
+        })
+        return
+      }
+    } else {
+      // In simple mode, validate table and column selections
+      const chartConfig = chartTypes[newChart.type as keyof typeof chartTypes]
+      const needsYAxis = !chartConfig?.noYAxis
+      
+      if (!selectedTable || !selectedXColumn || (needsYAxis && !selectedYColumn)) {
+        toast({
+          title: "Error",
+          description: "Please complete all required field selections.",
+          variant: "destructive",
+        })
+        return
+      }
+    }
 
     // Find the selected database to determine its type
     let selectedDb = availableDatabases.find((db: DatabaseConfig) => db.id.toString() === selectedChartDatabase)
@@ -895,6 +999,9 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
 
       // Create chart object matching backend schema
       const chartId = `chart-${newChart.title}-${newChart.type}-${Date.now()}`.replace(/[^a-zA-Z0-9-]/g, '-')
+      const chartConfig = chartTypes[newChart.type as keyof typeof chartTypes]
+      const needsYAxis = !chartConfig?.noYAxis
+      
       const backendChart = {
         id: chartId,
         type: newChart.type,
@@ -902,8 +1009,8 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         query: generatedQuery,
         database_id: selectedChartDatabase ? parseInt(selectedChartDatabase) : 1, // Use selected database ID
         config: {
-          xAxis: selectedXColumn,
-          yAxis: needsYAxis ? selectedYColumn : undefined,
+          xAxis: isAdvancedMode ? undefined : selectedXColumn,
+          yAxis: isAdvancedMode ? undefined : (needsYAxis ? selectedYColumn : undefined),
           data: chartData,
           color: newChart.color || chartColors[0],
           // Include grid layout properties in config
@@ -921,8 +1028,8 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         type: newChart.type as "bar" | "line" | "pie" | "area" | "scatter" | "histogram" | "heatmap" | "donut",
         query: generatedQuery,
         database_id: selectedChartDatabase ? parseInt(selectedChartDatabase) : undefined, // Add database_id
-        xAxis: selectedXColumn,
-        yAxis: needsYAxis ? selectedYColumn : undefined,
+        xAxis: isAdvancedMode ? undefined : selectedXColumn,
+        yAxis: isAdvancedMode ? undefined : (needsYAxis ? selectedYColumn : undefined),
         data: chartData,
         color: newChart.color || chartColors[0],
         width: 1, // Default width
@@ -1004,6 +1111,9 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
       setSelectedYColumn("")
       setAvailableTables([])
       setAvailableColumns([])
+      setIsAdvancedMode(false)
+      setCustomQuery("")
+      setQueryTestResult(null)
       setShowCreateChart(false)
       
       toast({
@@ -1638,33 +1748,129 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                     </Select>
                   </div>
 
-                  {/* Table Selection */}
-                  <div className="space-y-2">
-                    <Label htmlFor="chart-table">Table</Label>
-                    <Select 
-                      value={selectedTable} 
-                      onValueChange={setSelectedTable}
-                      disabled={!selectedChartDatabase || loadingTables}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder={loadingTables ? "Loading tables..." : "Select table"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableTables.map((table) => (
-                          <SelectItem key={table.name} value={table.name}>
-                            <span className="truncate">{table.name} ({(table.rowCount || 0).toLocaleString()} rows)</span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  {/* Query Mode Toggle */}
+                  <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium">Query Mode</Label>
+                        <p className="text-xs text-muted-foreground">
+                          {isAdvancedMode 
+                            ? "Write custom SQL or MongoDB queries with joins, aggregations, and complex filtering"
+                            : "Simple table and column selection for basic charts"
+                          }
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Label htmlFor="advanced-mode" className="text-sm">Simple</Label>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleAdvancedModeToggle}
+                          className={`w-16 h-8 ${isAdvancedMode ? 'bg-primary text-primary-foreground' : 'bg-background'}`}
+                        >
+                          {isAdvancedMode ? 'Advanced' : 'Simple'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {isAdvancedMode && (
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="custom-query">Custom Query</Label>
+                          <div className="space-y-2">
+                            <Textarea
+                              id="custom-query"
+                              placeholder={selectedChartDatabase ? 
+                                (availableDatabases.find(db => db.id.toString() === selectedChartDatabase)?.type?.includes('mongodb') ?
+                                  `// MongoDB Query Example:\ndb.collection.aggregate([\n  { $group: { _id: "$category", value: { $sum: 1 } } },\n  { $project: { name: "$_id", value: 1, _id: 0 } },\n  { $sort: { value: -1 } },\n  { $limit: 10 }\n])` :
+                                  `-- SQL Query Example:\nSELECT \n  category as name,\n  COUNT(*) as value\nFROM products\nGROUP BY category\nORDER BY value DESC\nLIMIT 10`
+                                ) : 
+                                "Select a database first to see query examples"
+                              }
+                              value={customQuery}
+                              onChange={(e) => setCustomQuery(e.target.value)}
+                              className="min-h-[120px] font-mono text-sm"
+                              disabled={!selectedChartDatabase}
+                            />
+                            <div className="flex justify-between items-center">
+                              <p className="text-xs text-muted-foreground">
+                                {newChart.type === 'pie' || newChart.type === 'donut' 
+                                  ? "Query must return 'name' and 'value' columns for pie/donut charts"
+                                  : "Query should return appropriate columns for X and Y axis data"
+                                }
+                              </p>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={testCustomQuery}
+                                disabled={!selectedChartDatabase || !customQuery.trim() || testingQuery}
+                                className="gap-2"
+                              >
+                                {testingQuery ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Code className="h-3 w-3" />
+                                )}
+                                {testingQuery ? 'Testing...' : 'Test Query'}
+                              </Button>
+                            </div>
+                          </div>
+                          
+                          {/* Query Test Result */}
+                          {queryTestResult && (
+                            <div className={`p-3 rounded-md border ${
+                              queryTestResult.success 
+                                ? 'bg-green-50 border-green-200 text-green-800' 
+                                : 'bg-red-50 border-red-200 text-red-800'
+                            }`}>
+                              <div className="flex items-start gap-2">
+                                <div className={`w-4 h-4 rounded-full mt-0.5 ${
+                                  queryTestResult.success ? 'bg-green-500' : 'bg-red-500'
+                                }`} />
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium">
+                                    {queryTestResult.success ? 'Query Test Successful' : 'Query Test Failed'}
+                                  </p>
+                                  <p className="text-xs mt-1">{queryTestResult.message}</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Column Selection */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="x-axis">
-                        {getAxisLabel('x', newChart.type as keyof typeof chartTypes)}
-                      </Label>
+                  {/* Simple Mode: Table and Column Selection */}
+                  {!isAdvancedMode && (
+                    <>
+                      {/* Table Selection */}
+                      <div className="space-y-2">
+                        <Label htmlFor="chart-table">Table</Label>
+                        <Select 
+                          value={selectedTable} 
+                          onValueChange={setSelectedTable}
+                          disabled={!selectedChartDatabase || loadingTables}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder={loadingTables ? "Loading tables..." : "Select table"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableTables.map((table) => (
+                              <SelectItem key={table.name} value={table.name}>
+                                <span className="truncate">{table.name} ({(table.rowCount || 0).toLocaleString()} rows)</span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Column Selection */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="x-axis">
+                            {getAxisLabel('x', newChart.type as keyof typeof chartTypes)}
+                          </Label>
                       <Select 
                         value={selectedXColumn} 
                         onValueChange={setSelectedXColumn}
@@ -1706,6 +1912,8 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                       </div>
                     )}
                   </div>
+                  </>
+                  )}
 
                   {/* Generated Query Preview */}
                   {generateQuery() && (
