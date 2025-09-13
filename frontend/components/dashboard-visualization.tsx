@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
-import { Switch } from "@/components/ui/switch"
 import {
   BarChart,
   Bar,
@@ -1770,10 +1769,12 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                       </div>
                       <div className="flex items-center space-x-2">
                         <Label htmlFor="advanced-mode" className="text-sm">Simple</Label>
-                        <Switch
+                        <input
+                          type="checkbox"
                           id="advanced-mode"
                           checked={isAdvancedMode}
-                          onCheckedChange={setIsAdvancedMode}
+                          onChange={(e) => setIsAdvancedMode(e.target.checked)}
+                          className="w-5 h-5 rounded border border-gray-300 bg-white checked:bg-blue-600 checked:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                         <Label htmlFor="advanced-mode" className="text-sm">Advanced</Label>
                       </div>
