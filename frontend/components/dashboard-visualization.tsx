@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
 import {
   BarChart,
   Bar,
@@ -791,23 +792,6 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       )
-    }
-  }
-
-  const handleAdvancedModeToggle = () => {
-    const newMode = !isAdvancedMode
-    setIsAdvancedMode(newMode)
-    setQueryTestResult(null) // Clear any previous test results
-    
-    if (newMode) {
-      // When switching to advanced mode, pre-populate with generated query if available
-      const generatedQuery = generateQuery()
-      if (generatedQuery) {
-        setCustomQuery(generatedQuery)
-      }
-    } else {
-      // When switching to simple mode, clear custom query
-      setCustomQuery("")
     }
   }
 
@@ -1762,14 +1746,12 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                       </div>
                       <div className="flex items-center space-x-2">
                         <Label htmlFor="advanced-mode" className="text-sm">Simple</Label>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleAdvancedModeToggle}
-                          className={`w-16 h-8 ${isAdvancedMode ? 'bg-primary text-primary-foreground' : 'bg-background'}`}
-                        >
-                          {isAdvancedMode ? 'Advanced' : 'Simple'}
-                        </Button>
+                        <Switch
+                          id="advanced-mode"
+                          checked={isAdvancedMode}
+                          onCheckedChange={setIsAdvancedMode}
+                        />
+                        <Label htmlFor="advanced-mode" className="text-sm">Advanced</Label>
                       </div>
                     </div>
 
