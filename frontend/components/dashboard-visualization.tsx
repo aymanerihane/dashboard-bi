@@ -1714,6 +1714,20 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                       )}
                     </div>
                   </div>
+
+                  {/* TEST: Simple Advanced Mode Toggle */}
+                  <div className="space-y-2 p-4 border-2 border-red-500 bg-red-50">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-lg font-bold text-red-800">ADVANCED MODE TEST</Label>
+                      <Switch
+                        checked={isAdvancedMode}
+                        onCheckedChange={setIsAdvancedMode}
+                      />
+                    </div>
+                    <p className="text-red-700">
+                      Current mode: {isAdvancedMode ? "ADVANCED" : "SIMPLE"}
+                    </p>
+                  </div>
                   
                   {/* Database Selection */}
                   <div className="space-y-2">
