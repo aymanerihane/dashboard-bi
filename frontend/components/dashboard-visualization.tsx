@@ -928,14 +928,25 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     
     const isMongoDb = selectedDb.type === "mongodb" || selectedDb.type === "mongodb-atlas"
     
-    // Generate the query using the centralized generateQuery function
-    const generatedQuery = generateQuery()
+    // Use the correct query based on mode
+    let queryToUse: string
+    if (isAdvancedMode) {
+      // In advanced mode, use the custom query directly
+      queryToUse = customQuery.trim()
+      console.log("Using custom query from advanced mode:", queryToUse)
+    } else {
+      // In simple mode, generate the query using the centralized generateQuery function
+      queryToUse = generateQuery()
+      console.log("Using generated query from simple mode:", queryToUse)
+    }
     
-    if (!generatedQuery) {
-      console.error("Query generation failed. Check selections.")
+    if (!queryToUse) {
+      console.error("Query generation/validation failed. Check selections.")
       toast({
         title: "Error",
-        description: "Could not generate a valid query. Please check your selections.",
+        description: isAdvancedMode 
+          ? "Please enter a valid custom query." 
+          : "Could not generate a valid query. Please check your selections.",
         variant: "destructive",
       })
       return
@@ -945,18 +956,19 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
       selectedChartDatabase, 
       selectedDbType: selectedDb.type, 
       isMongoDb,
-      generatedQuery
+      queryToUse,
+      mode: isAdvancedMode ? 'advanced' : 'simple'
     })
     
     try {
       // Execute the query to get real data
       let chartData = []
       if (selectedChartDatabase) {
-        console.log(selectedDb.type ? "true : " + selectedDb.type : "false")
-        console.log("Executing query:", generatedQuery)
+        console.log(selectedDb.type ? "Database type: " + selectedDb.type : "No database type found")
+        console.log("Executing query:", queryToUse)
         console.log("Database ID:", selectedChartDatabase)
         
-        const result = await apiClient.executeQuery(parseInt(selectedChartDatabase), generatedQuery)
+        const result = await apiClient.executeQuery(parseInt(selectedChartDatabase), queryToUse)
         console.log("Query result:", result)
         
         if (result.success && result.data) {
@@ -989,8 +1001,8 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         id: chartId,
         type: newChart.type,
         title: newChart.title,
-        query: generatedQuery,
-        database_id: selectedChartDatabase ? parseInt(selectedChartDatabase) : 1, // Use selected database ID
+        query: queryToUse, // Use the correct query (custom or generated)
+        database_id: selectedChartDatabase ? parseInt(selectedChartDatabase) : 1,
         config: {
           xAxis: isAdvancedMode ? undefined : selectedXColumn,
           yAxis: isAdvancedMode ? undefined : (needsYAxis ? selectedYColumn : undefined),
@@ -1009,20 +1021,19 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         id: chartId,
         title: newChart.title,
         type: newChart.type as "bar" | "line" | "pie" | "area" | "scatter" | "histogram" | "heatmap" | "donut",
-        query: generatedQuery,
-        database_id: selectedChartDatabase ? parseInt(selectedChartDatabase) : undefined, // Add database_id
+        query: queryToUse, // Use the correct query (custom or generated)
+        database_id: selectedChartDatabase ? parseInt(selectedChartDatabase) : undefined,
         xAxis: isAdvancedMode ? undefined : selectedXColumn,
         yAxis: isAdvancedMode ? undefined : (needsYAxis ? selectedYColumn : undefined),
         data: chartData,
         color: newChart.color || chartColors[0],
-        width: 1, // Default width
-        height: 1, // Default height
-        position: selectedDashboard.charts.length, // Add to end
-        // Grid layout properties
-        x: (selectedDashboard.charts.length * 2) % 4, // Auto-position in grid
-        y: Math.floor((selectedDashboard.charts.length * 2) / 4) * 2, // Auto-position in grid
-        w: 2, // Default width in grid units
-        h: 2, // Default height in grid units
+        width: 1,
+        height: 1,
+        position: selectedDashboard.charts.length,
+        x: (selectedDashboard.charts.length * 2) % 4,
+        y: Math.floor((selectedDashboard.charts.length * 2) / 4) * 2,
+        w: 2,
+        h: 2,
       }
 
       // Update dashboard with new chart via API
@@ -1678,15 +1689,6 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   <DialogTitle>Create New Chart</DialogTitle>
                 </DialogHeader>
                 
-                {/* ABSOLUTE FIRST TEST - This should ALWAYS show */}
-                <div className="p-4 bg-yellow-300 border-4 border-black text-black text-xl font-bold">
-                  🚨 DIALOG IS WORKING! 🚨
-                  <br />
-                  Available Databases: {availableDatabases.length}
-                  <br />
-                  Selected Dashboard: {selectedDashboard ? "YES" : "NO"}
-                </div>
-                
                 <div className="space-y-4 p-1">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -1724,21 +1726,6 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                     </div>
                   </div>
 
-                  {/* TEST: Simple Advanced Mode Toggle */}
-                  <div className="space-y-2 p-4 border-2 border-red-500 bg-red-50">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-lg font-bold text-red-800">ADVANCED MODE TEST</Label>
-                      <input
-                        type="checkbox"
-                        checked={isAdvancedMode}
-                        onChange={(e) => setIsAdvancedMode(e.target.checked)}
-                        className="w-5 h-5 rounded border border-gray-300 bg-white checked:bg-blue-600 checked:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <p className="text-red-700">
-                      Current mode: {isAdvancedMode ? "ADVANCED" : "SIMPLE"}
-                    </p>
-                  </div>
                   
                   {/* Database Selection */}
                   <div className="space-y-2">
@@ -1771,13 +1758,22 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                       </div>
                       <div className="flex items-center space-x-2">
                         <Label htmlFor="advanced-mode" className="text-sm">Simple</Label>
-                        <input
-                          type="checkbox"
+                        <button
+                          type="button"
                           id="advanced-mode"
-                          checked={isAdvancedMode}
-                          onChange={(e) => setIsAdvancedMode(e.target.checked)}
-                          className="w-5 h-5 rounded border border-gray-300 bg-white checked:bg-blue-600 checked:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
+                          role="switch"
+                          aria-checked={isAdvancedMode}
+                          onClick={() => setIsAdvancedMode(!isAdvancedMode)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                            isAdvancedMode ? 'bg-blue-600' : 'bg-gray-200'
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                              isAdvancedMode ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
                         <Label htmlFor="advanced-mode" className="text-sm">Advanced</Label>
                       </div>
                     </div>
@@ -1924,12 +1920,12 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                   </>
                   )}
 
-                  {/* Generated Query Preview */}
-                  {generateQuery() && (
+                  {/* Query Preview */}
+                  {(isAdvancedMode ? customQuery.trim() : generateQuery()) && (
                     <div className="space-y-2">
-                      <Label>Generated Query</Label>
+                      <Label>{isAdvancedMode ? "Custom Query" : "Generated Query"}</Label>
                       <div className="p-3 bg-muted rounded-md font-mono text-sm overflow-x-auto break-all">
-                        {generateQuery()}
+                        {isAdvancedMode ? customQuery.trim() : generateQuery()}
                       </div>
                     </div>
                   )}
@@ -1957,9 +1953,11 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                       onClick={createChart}
                       disabled={
                         !newChart.title || 
-                        !selectedTable || 
-                        !selectedXColumn || 
-                        (chartTypes[newChart.type as keyof typeof chartTypes]?.noYAxis ? false : !selectedYColumn)
+                        !selectedChartDatabase ||
+                        (isAdvancedMode 
+                          ? !customQuery.trim()  // In advanced mode, only require custom query
+                          : (!selectedTable || !selectedXColumn || (chartTypes[newChart.type as keyof typeof chartTypes]?.noYAxis ? false : !selectedYColumn))  // In simple mode, require table/columns
+                        )
                       }
                       className="w-full sm:w-auto"
                     >
