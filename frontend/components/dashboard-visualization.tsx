@@ -147,10 +147,6 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
   })
   const [newDashboard, setNewDashboard] = useState({ name: "", description: "" })
   
-  // Edit chart advanced mode states
-  const [isEditAdvancedMode, setIsEditAdvancedMode] = useState(false)
-  const [editCustomQuery, setEditCustomQuery] = useState("")
-  
   // New state for dynamic form
   const [availableDatabases, setAvailableDatabases] = useState<DatabaseConfig[]>([])
   const [selectedChartDatabase, setSelectedChartDatabase] = useState<string>("")
@@ -854,64 +850,6 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     }
   }
 
-  const testEditCustomQuery = async () => {
-    if (!selectedDashboard || !editCustomQuery.trim()) {
-      toast({
-        title: "Error",
-        description: "Please enter a query to test.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setTestingQuery(true)
-    setQueryTestResult(null)
-
-    try {
-      // Get the database ID from the chart being edited
-      const databaseId = editingChart?.database_id || 1
-      const result = await apiClient.executeQuery(databaseId, editCustomQuery.trim())
-      
-      if (result.success && result.data) {
-        setQueryTestResult({
-          success: true,
-          message: `Query executed successfully! Retrieved ${result.data.length} row(s).`,
-          rowCount: result.data.length
-        })
-        
-        toast({
-          title: "Query Test Successful",
-          description: `Retrieved ${result.data.length} row(s). Query is ready to use.`,
-        })
-      } else {
-        setQueryTestResult({
-          success: false,
-          message: result.error || "Query failed with unknown error"
-        })
-        
-        toast({
-          title: "Query Test Failed",
-          description: result.error || "Unknown error occurred",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Network or server error"
-      setQueryTestResult({
-        success: false,
-        message: errorMessage
-      })
-      
-      toast({
-        title: "Query Test Failed",
-        description: errorMessage,
-        variant: "destructive",
-      })
-    } finally {
-      setTestingQuery(false)
-    }
-  }
-
   const createChart = async () => {
     if (!selectedDashboard || !newChart.title || !newChart.type) return
 
@@ -1324,13 +1262,6 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
       query: chart.query,
       color: chart.color,
     })
-    
-    // Initialize edit mode states
-    // Detect if chart is using custom query (advanced mode)
-    const isCustomQuery = chart.query && !chart.query.includes('SELECT * FROM') && !chart.query.includes('db.')
-    setIsEditAdvancedMode(isCustomQuery)
-    setEditCustomQuery(isCustomQuery ? chart.query : '')
-    
     setShowEditChart(true)
   }
 
@@ -1402,9 +1333,6 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     if (!editingChart || !selectedDashboard) return
 
     try {
-      // Determine the query to use based on edit mode
-      const queryToUse = isEditAdvancedMode ? editCustomQuery.trim() : editingChart.query
-
       // Update the chart in the dashboard using editingChart values
       const updatedCharts = selectedDashboard.charts.map(chart => 
         chart.id === editingChart.id 
@@ -1412,7 +1340,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
               ...chart,
               title: editingChart.title,
               type: editingChart.type,
-              query: queryToUse,
+              query: editingChart.query,
               color: editingChart.color,
               columns: editingChart.columns || {},
               customColors: editingChart.customColors || {},
@@ -2190,81 +2118,17 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                     </div>
                   )}
 
-                  {/* Query Mode Toggle */}
+                  {/* Chart Query (Advanced) */}
                   <div className="space-y-2">
-                    <Label>Query Mode</Label>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="edit-advanced-mode"
-                        checked={isEditAdvancedMode}
-                        onChange={(e) => setIsEditAdvancedMode(e.target.checked)}
-                        className="rounded border border-input bg-background ring-offset-background"
-                      />
-                      <Label htmlFor="edit-advanced-mode">
-                        Use Advanced Mode (Custom Query)
-                      </Label>
-                    </div>
+                    <Label htmlFor="edit-chart-query">SQL Query (Advanced)</Label>
+                    <Textarea
+                      id="edit-chart-query"
+                      placeholder="SELECT column1, column2 FROM table_name"
+                      value={editingChart.query}
+                      onChange={(e) => setEditingChart((prev) => ({ ...prev!, query: e.target.value }))}
+                      rows={3}
+                    />
                   </div>
-
-                  {/* Chart Query Section */}
-                  {isEditAdvancedMode ? (
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-custom-query">Custom Query</Label>
-                        <Textarea
-                          id="edit-custom-query"
-                          placeholder="SELECT column1, column2 FROM table_name"
-                          value={editCustomQuery}
-                          onChange={(e) => setEditCustomQuery(e.target.value)}
-                          rows={4}
-                        />
-                      </div>
-
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={testEditCustomQuery}
-                          disabled={testingQuery || !editCustomQuery.trim()}
-                        >
-                          {testingQuery ? "Testing..." : "Test Query"}
-                        </Button>
-                      </div>
-
-                      {queryTestResult && (
-                        <div className={`text-sm p-2 rounded ${
-                          queryTestResult.success 
-                            ? 'bg-green-50 text-green-700 border border-green-200' 
-                            : 'bg-red-50 text-red-700 border border-red-200'
-                        }`}>
-                          {queryTestResult.message}
-                        </div>
-                      )}
-
-                      <div className="space-y-2">
-                        <Label>Query Preview</Label>
-                        <div className="text-sm font-mono bg-gray-50 p-2 rounded border max-h-20 overflow-y-auto">
-                          {editCustomQuery.trim() || "No custom query entered"}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-chart-query">Generated Query (Read-only)</Label>
-                      <Textarea
-                        id="edit-chart-query"
-                        placeholder="Query will be generated automatically"
-                        value={editingChart.query}
-                        readOnly
-                        rows={3}
-                        className="bg-gray-50"
-                      />
-                      <div className="text-xs text-muted-foreground">
-                        Switch to Advanced Mode to use custom queries
-                      </div>
-                    </div>
-                  )}
 
                   <div className="flex justify-end gap-2">
                     <Button variant="outline" onClick={() => {
