@@ -174,6 +174,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
       title: backendChart.title,
       type: backendChart.type,
       query: backendChart.query,
+      database_id: backendChart.database_id, // Add database_id from backend
       xAxis: backendChart.config?.xAxis,
       yAxis: backendChart.config?.yAxis,
       data: backendChart.config?.data || [],
@@ -1333,6 +1334,17 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
     if (!editingChart || !selectedDashboard) return
 
     try {
+      // Fetch new data if the query has changed
+      let updatedData = editingChart.data;
+      if (editingChart.query && editingChart.database_id) {
+        try {
+          updatedData = await fetchChartData(editingChart);
+        } catch (error) {
+          console.error("Failed to fetch updated chart data:", error);
+          // Continue with existing data if fetch fails
+        }
+      }
+
       // Update the chart in the dashboard using editingChart values
       const updatedCharts = selectedDashboard.charts.map(chart => 
         chart.id === editingChart.id 
@@ -1344,6 +1356,8 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
               color: editingChart.color,
               columns: editingChart.columns || {},
               customColors: editingChart.customColors || {},
+              data: updatedData, // Use the updated data
+              database_id: editingChart.database_id, // Preserve database_id
               // Keep existing grid properties
               x: editingChart.x,
               y: editingChart.y,
@@ -1359,7 +1373,7 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
         type: chart.type,
         title: chart.title,
         query: chart.query,
-        database_id: 1,
+        database_id: chart.database_id || 1, // Use actual database_id or fallback to 1
         config: {
           xAxis: chart.xAxis,
           yAxis: chart.yAxis,
@@ -1386,9 +1400,19 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
       // Reload dashboards
       const backendDashboards = await apiClient.getDashboards()
       const frontendDashboards = backendDashboards.map(convertBackendDashboardToFrontend)
-      setDashboards(frontendDashboards)
       
-      const updatedSelectedDashboard = frontendDashboards.find(d => d.id === selectedDashboard.id)
+      // Re-fetch data for all charts to ensure updated queries have fresh data
+      const dashboardsWithData = await Promise.all(frontendDashboards.map(async (dashboard) => {
+        const chartsWithData = await Promise.all(dashboard.charts.map(async (chart) => {
+          const data = await fetchChartData(chart);
+          return { ...chart, data };
+        }));
+        return { ...dashboard, charts: chartsWithData };
+      }));
+
+      setDashboards(dashboardsWithData);
+      
+      const updatedSelectedDashboard = dashboardsWithData.find(d => d.id === selectedDashboard.id)
       if (updatedSelectedDashboard) {
         setSelectedDashboard(updatedSelectedDashboard)
       }
@@ -2010,6 +2034,29 @@ export function DashboardVisualization({ database }: DashboardVisualizationProps
                         </SelectContent>
                       </Select>
                     </div>
+                  </div>
+
+                  {/* Database Selection for Chart */}
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-chart-database">Database</Label>
+                    <Select
+                      value={editingChart.database_id?.toString() || ""}
+                      onValueChange={(value) => setEditingChart(prev => ({
+                        ...prev!,
+                        database_id: parseInt(value)
+                      }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select database" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableDatabases.map((db: any) => (
+                          <SelectItem key={db.id} value={db.id.toString()}>
+                            {db.name} ({db.db_type})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   {/* Chart Colors */}
